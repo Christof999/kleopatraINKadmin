@@ -6,7 +6,7 @@ import {
   query,
   serverTimestamp,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
@@ -15,6 +15,17 @@ import '../styles.css';
 import './admin.css';
 
 const Body3DViewer = lazy(() => import('../components/Body3DViewer'));
+
+const CAMERA_PATTERN = /^(img|dsc|dscn|p\d|mgim|mvim)[-_]?\d/i;
+
+function pieceFromFilename(filename) {
+  const base = filename.replace(/\.[^.]+$/, '');
+  if (CAMERA_PATTERN.test(base)) return '';
+  return base
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
 
 const PLACEMENT_HINTS = [
   'Unterarm',
@@ -65,10 +76,11 @@ export default function AdminApp() {
   const [status, setStatus] = useState('');
   const [tab, setTab] = useState('gallery');
 
-  const [galFile, setGalFile] = useState(null);
-  const [galPreview, setGalPreview] = useState('');
+  const [galFiles, setGalFiles] = useState([]);
+  const [galPreviewUrls, setGalPreviewUrls] = useState([]);
   const [galStyle, setGalStyle] = useState(TATTOO_STYLES[0]);
   const [galPiece, setGalPiece] = useState('');
+  const [galUploadProgress, setGalUploadProgress] = useState(null);
 
   const [wdFile, setWdFile] = useState(null);
   const [wdPreview, setWdPreview] = useState('');
@@ -125,18 +137,19 @@ export default function AdminApp() {
     await signOut(auth);
   };
 
-  const clearGalFile = () => {
-    if (galPreview) URL.revokeObjectURL(galPreview);
-    setGalFile(null);
-    setGalPreview('');
+  const clearGalSelection = () => {
+    galPreviewUrls.forEach((u) => URL.revokeObjectURL(u));
+    setGalFiles([]);
+    setGalPreviewUrls([]);
+    setGalUploadProgress(null);
   };
 
-  const onGalFile = (e) => {
-    const f = e.target.files?.[0];
-    clearGalFile();
-    if (!f) return;
-    setGalFile(f);
-    setGalPreview(URL.createObjectURL(f));
+  const onGalFiles = (e) => {
+    const list = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
+    galPreviewUrls.forEach((u) => URL.revokeObjectURL(u));
+    setGalFiles(list);
+    setGalPreviewUrls(list.map((f) => URL.createObjectURL(f)));
+    e.target.value = '';
   };
 
   const clearWdFile = () => {
@@ -157,32 +170,58 @@ export default function AdminApp() {
   const submitGallery = async (e) => {
     e.preventDefault();
     if (!db || !storage || !user) return;
-    if (!galFile) {
-      setStatus('Bitte ein Bild wählen.');
+    if (galFiles.length === 0) {
+      setStatus('Bitte mindestens ein Bild wählen.');
       return;
     }
     setBusy(true);
     setStatus('');
+    setGalUploadProgress(0);
+    const totalBytes = galFiles.reduce((s, f) => s + f.size, 0) || 1;
+    let doneBytes = 0;
+    let ok = 0;
     try {
-      const ext = galFile.name.split('.').pop() || 'jpg';
-      const path = `gallery/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const sref = ref(storage, path);
-      await uploadBytes(sref, galFile, { contentType: galFile.type || 'image/jpeg' });
-      const src = await getDownloadURL(sref);
-      await addDoc(collection(db, 'gallery'), {
-        src,
-        style: galStyle,
-        piece: galPiece.trim(),
-        createdAt: serverTimestamp(),
-      });
-      setStatus('Galerie: Upload gespeichert.');
-      clearGalFile();
+      for (let i = 0; i < galFiles.length; i += 1) {
+        const galFile = galFiles[i];
+        const ext = galFile.name.split('.').pop() || 'jpg';
+        const path = `gallery/${Date.now()}_${i}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const sref = ref(storage, path);
+        const pieceRaw = galPiece.trim();
+        const piece = pieceRaw || pieceFromFilename(galFile.name);
+
+        const task = uploadBytesResumable(sref, galFile, { contentType: galFile.type || 'image/jpeg' });
+        const src = await new Promise((resolve, reject) => {
+          task.on(
+            'state_changed',
+            (snap) => {
+              const current = doneBytes + snap.bytesTransferred;
+              setGalUploadProgress(Math.min(100, Math.round((current / totalBytes) * 100)));
+            },
+            reject,
+            async () => {
+              resolve(await getDownloadURL(task.snapshot.ref));
+            },
+          );
+        });
+        await addDoc(collection(db, 'gallery'), {
+          src,
+          style: galStyle,
+          ...(piece ? { piece } : {}),
+          createdAt: serverTimestamp(),
+        });
+        ok += 1;
+        doneBytes += galFile.size;
+        setGalUploadProgress(Math.round((doneBytes / totalBytes) * 100));
+      }
+      setStatus(`Galerie: ${ok} Bild(er) gespeichert.`);
+      clearGalSelection();
       setGalPiece('');
       loadLists();
     } catch (err) {
       setStatus(err.message || String(err));
     } finally {
       setBusy(false);
+      setGalUploadProgress(null);
     }
   };
 
@@ -349,18 +388,24 @@ export default function AdminApp() {
 
       {tab === 'gallery' && (
         <section className="admin-section">
-          <h3 className="admin-h3">Neues Galerie-Bild</h3>
+          <h3 className="admin-h3">Neue Galerie-Bilder</h3>
           <p className="admin-lead cormorant">
             Schema: <code>src</code>, <code>style</code>, optional <code>piece</code>, optional <code>createdAt</code> (Server).
+            Mehrere Dateien wählen — Upload-Fortschritt siehst du unten.
           </p>
           <form className="admin-form" onSubmit={submitGallery}>
             <div className="field">
-              <label>Bilddatei</label>
-              <input type="file" accept="image/*" onChange={onGalFile} />
+              <label>Bilddateien (Mehrfachauswahl)</label>
+              <input type="file" accept="image/*" multiple onChange={onGalFiles} />
             </div>
-            {galPreview && (
-              <div className="admin-preview">
-                <img src={galPreview} alt="Vorschau" />
+            {galPreviewUrls.length > 0 && (
+              <div className="admin-preview-grid">
+                {galPreviewUrls.map((url, idx) => (
+                  <div key={url} className="admin-preview-cell">
+                    <img src={url} alt="" />
+                    <span className="admin-preview-name">{galFiles[idx]?.name}</span>
+                  </div>
+                ))}
               </div>
             )}
             <div className="field">
@@ -381,11 +426,19 @@ export default function AdminApp() {
                 type="text"
                 value={galPiece}
                 onChange={(e) => setGalPiece(e.target.value)}
-                placeholder="z. B. Rosenranke"
+                placeholder="Leer lassen: Name aus Dateiname je Bild"
               />
             </div>
-            <button type="submit" className="btn-primary" disabled={busy}>
-              Hochladen & speichern
+            {galUploadProgress !== null && (
+              <div className="admin-progress-wrap" aria-live="polite">
+                <div className="admin-progress-track">
+                  <div className="admin-progress-fill" style={{ width: `${galUploadProgress}%` }} />
+                </div>
+                <div className="admin-progress-label">{galUploadProgress}%</div>
+              </div>
+            )}
+            <button type="submit" className="btn-primary" disabled={busy || galFiles.length === 0}>
+              {galFiles.length > 1 ? `${galFiles.length} Bilder hochladen` : 'Hochladen & speichern'}
             </button>
           </form>
 
