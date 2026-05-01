@@ -7,6 +7,8 @@ const KleopatraHead3D = lazy(() => import('./components/KleopatraHead3D'));
 const Body3DViewer    = lazy(() => import('./components/Body3DViewer'));
 import { useTweaks, TweaksPanel, TweakSection, TweakSlider, TweakRadio } from './components/TweaksPanel';
 import { GAL_ITEMS, GAL_FILTERS } from './gallery-items';
+import { getFirebaseConfig } from './firebase/client';
+import { fetchWannadosFromFirestore } from './wannadosFirebase';
 import { WANNADO_ITEMS } from './wannado-items';
 import './styles.css';
 
@@ -295,13 +297,36 @@ const INTERESTS = [
 const HAS_3D_BODY = true;
 
 function WannaDos({ onBack, onBook }) {
-  const [filter,   setFilter]   = useState('Alle');
+  const [filter, setFilter] = useState('Alle');
   const [viewItem, setViewItem] = useState(null);
+  const [items, setItems] = useState(WANNADO_ITEMS);
+  const [wdLoading, setWdLoading] = useState(false);
+  const [wdError, setWdError] = useState('');
 
-  const available = WANNADO_ITEMS.filter((i) => i.available !== false);
-  const items = filter === 'Alle'
-    ? WANNADO_ITEMS
-    : WANNADO_ITEMS.filter((i) => i.target === filter || i.target === 'Alle');
+  useEffect(() => {
+    if (!getFirebaseConfig()) return undefined;
+    let cancelled = false;
+    setWdLoading(true);
+    setWdError('');
+    fetchWannadosFromFirestore()
+      .then((rows) => {
+        if (!cancelled && rows.length > 0) setItems(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setWdError(e.message || String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setWdLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const available = items.filter((i) => i.available !== false);
+  const filtered = filter === 'Alle'
+    ? items
+    : items.filter((i) => i.target === filter || i.target === 'Alle');
 
   return (
     <div className="page with-bg">
@@ -324,14 +349,25 @@ function WannaDos({ onBack, onBook }) {
         ))}
       </div>
 
-      {items.length === 0 ? (
+      {wdLoading && (
+        <p className="gal-empty" style={{ paddingBottom: 12 }}>
+          Motive werden geladen …
+        </p>
+      )}
+      {wdError && (
+        <p className="gal-empty" style={{ color: 'var(--muted)', paddingBottom: 12 }}>
+          Konnte Firestore nicht laden ({wdError}). Lokale Liste wird angezeigt.
+        </p>
+      )}
+
+      {filtered.length === 0 ? (
         <p className="gal-empty">
           {filter === 'Alle' ? 'Neue Motive folgen bald.' : `Keine Motive für ${filter} verfügbar.`}
         </p>
       ) : (
         <div className="wd-grid">
-          {items.map((item, i) => (
-            <div key={i} className={`wd-card${item.available === false ? ' wd-taken' : ''}${viewItem === item ? ' wd-viewing' : ''}`}>
+          {filtered.map((item, i) => (
+            <div key={item.id ?? i} className={`wd-card${item.available === false ? ' wd-taken' : ''}${viewItem === item ? ' wd-viewing' : ''}`}>
               <div className="wd-img-wrap">
                 <img src={item.src} alt={item.title} className="wd-img" loading="lazy" />
                 {item.available === false && (
@@ -380,7 +416,10 @@ function WannaDos({ onBack, onBook }) {
             </p>
           </div>
           <Suspense fallback={<div className="body3d-loading">3D-Modell wird geladen …</div>}>
-            <Body3DViewer tatSrc={viewItem?.src ?? null} />
+            <Body3DViewer
+              tatSrc={viewItem?.src ?? null}
+              initialPlacement3d={viewItem?.placement3d ?? null}
+            />
           </Suspense>
         </div>
       )}

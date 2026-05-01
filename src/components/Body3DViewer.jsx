@@ -3,14 +3,19 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
+import { getBodyModelUrls } from '../constants/bodyModels';
 
-const MODELS = {
-  female: '/body-female.glb',
-  male: '/body-male.glb',
-};
+function resolveActiveModelUrl(gender, placement3d) {
+  const defaults = getBodyModelUrls();
+  if (placement3d?.bodyModelUrl && placement3d.gender === gender) {
+    return placement3d.bodyModelUrl;
+  }
+  return defaults[gender];
+}
 
-useGLTF.preload(MODELS.female);
-useGLTF.preload(MODELS.male);
+const DEFAULT_URLS = getBodyModelUrls();
+useGLTF.preload(DEFAULT_URLS.female);
+useGLTF.preload(DEFAULT_URLS.male);
 
 function makeOrientation(point, worldNormal) {
   const helper = new THREE.Object3D();
@@ -32,10 +37,11 @@ function collectMeshes(root) {
  * Firestore-freundliche Platzierung (ohne THREE-Objekte).
  * Optional Feld `placement3d` im Wannado-Dokument.
  */
-export function serializeDecals(gender, fallbackDecalSize, decals) {
+export function serializeDecals(gender, fallbackDecalSize, decals, bodyModelUrl) {
   return {
     version: 1,
     gender,
+    bodyModelUrl: bodyModelUrl ?? null,
     decalSize: fallbackDecalSize,
     decals: decals.map((d) => ({
       meshIndex: d.meshIndex,
@@ -93,7 +99,7 @@ function TattooDecal({ mesh, point, normal, size, texture }) {
 // ── Body + eine Platzierung: erster Klick setzt, dann ziehen / Shift+ziehen ───
 
 function BodyPlaceAndDrag({
-  gender,
+  modelUrl,
   meshListRef,
   onMeshesReady,
   texture,
@@ -103,7 +109,7 @@ function BodyPlaceAndDrag({
   onDecalChange,
   setOrbitEnabled,
 }) {
-  const { scene } = useGLTF(MODELS[gender]);
+  const { scene } = useGLTF(modelUrl);
   const { camera, gl } = useThree();
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const dragRef = useRef(null);
@@ -239,7 +245,7 @@ function BodyPlaceAndDrag({
 // ── Three scene ───────────────────────────────────────────────────────────────
 
 function Scene({
-  gender,
+  modelUrl,
   meshListRef,
   meshTick,
   decal,
@@ -258,7 +264,7 @@ function Scene({
       <directionalLight position={[-2, 1, -2]} intensity={0.35} />
       <Suspense fallback={null}>
         <BodyPlaceAndDrag
-          gender={gender}
+          modelUrl={modelUrl}
           meshListRef={meshListRef}
           onMeshesReady={onMeshesReady}
           texture={texture}
@@ -311,6 +317,11 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
   const hydratedKeyRef = useRef('');
   sizeRef.current = decalSize;
 
+  const activeModelUrl = useMemo(
+    () => resolveActiveModelUrl(gender, initialPlacement3d),
+    [gender, initialPlacement3d],
+  );
+
   const onMeshesReady = useCallback(() => {
     setMeshTick((n) => n + 1);
   }, []);
@@ -350,7 +361,8 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
         return;
       }
       const sz = nextDecal.size ?? sizeFallback;
-      onPlacementChange(serializeDecals(g, sz, [nextDecal]));
+      const bodyModelUrl = resolveActiveModelUrl(g, null);
+      onPlacementChange(serializeDecals(g, sz, [nextDecal], bodyModelUrl));
     },
     [gender, onPlacementChange, tatSrc],
   );
@@ -474,7 +486,7 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
         }}
       >
         <Scene
-          gender={gender}
+          modelUrl={activeModelUrl}
           meshListRef={meshListRef}
           meshTick={meshTick}
           decal={decal}
