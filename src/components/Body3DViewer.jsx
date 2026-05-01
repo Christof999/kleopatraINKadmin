@@ -340,8 +340,7 @@ export default function Body3DViewer({
   useEffect(() => {
     setDecal(null);
     hydratedKeyRef.current = '';
-    if (onPlacementChange) onPlacementChange(null);
-  }, [tatSrc, onPlacementChange]);
+  }, [tatSrc]);
 
   useEffect(() => {
     if (!tatSrc) {

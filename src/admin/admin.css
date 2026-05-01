@@ -233,6 +233,54 @@
   background: var(--bg-elev);
 }
 
+.admin-doc-item-row {
+  align-items: stretch;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.admin-doc-main {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.admin-doc-main:hover .admin-doc-title {
+  color: var(--gold-bright);
+}
+
+.admin-doc-main-text {
+  min-width: 0;
+}
+
+.admin-doc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.admin-doc-delete:hover {
+  border-color: rgba(180, 80, 80, 0.6);
+  color: #d4a5a5;
+}
+
+.admin-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
 .admin-doc-thumb {
   width: 56px;
   height: 56px;

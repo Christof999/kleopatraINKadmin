@@ -1,12 +1,16 @@
 import {
   addDoc,
   collection,
+  deleteField,
+  doc,
   getDocs,
   limit,
   query,
   serverTimestamp,
+  updateDoc,
+  deleteDoc,
 } from 'firebase/firestore';
-import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
@@ -25,6 +29,20 @@ function pieceFromFilename(filename) {
     .replace(/[-_]+/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
+}
+
+function storageRefFromDownloadUrl(bucket, url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const marker = '/o/';
+    const i = url.indexOf(marker);
+    if (i === -1) return null;
+    const encoded = url.slice(i + marker.length).split('?')[0];
+    const path = decodeURIComponent(encoded);
+    return ref(bucket, path);
+  } catch {
+    return null;
+  }
 }
 
 const PLACEMENT_HINTS = [
@@ -91,9 +109,9 @@ export default function AdminApp() {
   const [wdDesc, setWdDesc] = useState('');
   const [wdAvailable, setWdAvailable] = useState(true);
   const [wdOrder, setWdOrder] = useState('');
-  const placement3dRef = useRef(null);
-
-  const [galleryRows, setGalleryRows] = useState([]);
+  const [wdEditingId, setWdEditingId] = useState(null);
+  const [wdRemoteSrc, setWdRemoteSrc] = useState(null);
+  const [wdPlacementInitial, setWdPlacementInitial] = useState(null);
   const [wannadoRows, setWannadoRows] = useState([]);
 
   useEffect(() => {
@@ -106,7 +124,7 @@ export default function AdminApp() {
     try {
       const gSnap = await getDocs(query(collection(db, 'gallery'), limit(50)));
       setGalleryRows(gSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      const wSnap = await getDocs(query(collection(db, 'wannados'), limit(80)));
+      const wSnap = await getDocs(query(collection(db, 'wannados'), limit(200)));
       setWannadoRows(wSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
       setStatus(`Liste: ${e.message || String(e)}`);
@@ -156,7 +174,39 @@ export default function AdminApp() {
     if (wdPreview) URL.revokeObjectURL(wdPreview);
     setWdFile(null);
     setWdPreview('');
+  };
+
+  const resetWannadoForm = () => {
+    clearWdFile();
+    setWdEditingId(null);
+    setWdRemoteSrc(null);
+    setWdTitle('');
+    setWdStyle(TATTOO_STYLES[0]);
+    setWdPlacement('');
+    setWdTarget('Alle');
+    setWdDesc('');
+    setWdAvailable(true);
+    setWdOrder('');
     placement3dRef.current = null;
+    setWdPlacementInitial(null);
+  };
+
+  const loadWannadoForEdit = (row) => {
+    if (wdPreview) URL.revokeObjectURL(wdPreview);
+    setWdFile(null);
+    setWdPreview('');
+    setWdEditingId(row.id);
+    setWdRemoteSrc(row.src);
+    setWdTitle(row.title || '');
+    setWdStyle(TATTOO_STYLES.includes(row.style) ? row.style : TATTOO_STYLES[0]);
+    setWdPlacement(row.placement || '');
+    setWdTarget(WANNADO_TARGETS.includes(row.target) ? row.target : 'Alle');
+    setWdDesc(row.desc || '');
+    setWdAvailable(row.available !== false);
+    setWdOrder(row.order != null && row.order !== '' ? String(row.order) : '');
+    placement3dRef.current = row.placement3d ?? null;
+    setWdPlacementInitial(row.placement3d ?? null);
+    setTab('wannados');
   };
 
   const onWdFile = (e) => {
@@ -165,6 +215,9 @@ export default function AdminApp() {
     if (!f) return;
     setWdFile(f);
     setWdPreview(URL.createObjectURL(f));
+    setWdRemoteSrc(null);
+    placement3dRef.current = null;
+    setWdPlacementInitial(null);
   };
 
   const submitGallery = async (e) => {
@@ -228,8 +281,10 @@ export default function AdminApp() {
   const submitWannado = async (e) => {
     e.preventDefault();
     if (!db || !storage || !user) return;
-    if (!wdFile) {
-      setStatus('Bitte ein Motiv-Bild wählen.');
+    const remoteSrc = wdEditingId ? wdRemoteSrc : null;
+    const tatForViewer = wdPreview || remoteSrc;
+    if (!tatForViewer) {
+      setStatus('Bitte ein Motiv-Bild wählen oder Eintrag bearbeiten.');
       return;
     }
     if (!wdTitle.trim()) {
@@ -243,11 +298,23 @@ export default function AdminApp() {
     setBusy(true);
     setStatus('');
     try {
-      const ext = wdFile.name.split('.').pop() || 'jpg';
-      const path = `wannados/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const sref = ref(storage, path);
-      await uploadBytes(sref, wdFile, { contentType: wdFile.type || 'image/jpeg' });
-      const src = await getDownloadURL(sref);
+      let src = remoteSrc;
+      if (wdFile) {
+        const ext = wdFile.name.split('.').pop() || 'jpg';
+        const path = `wannados/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const sref = ref(storage, path);
+        await uploadBytes(sref, wdFile, { contentType: wdFile.type || 'image/jpeg' });
+        src = await getDownloadURL(sref);
+        if (remoteSrc && remoteSrc !== src) {
+          const oldRef = storageRefFromDownloadUrl(storage, remoteSrc);
+          if (oldRef)
+            try {
+              await deleteObject(oldRef);
+            } catch {
+              /* ignore */
+            }
+        }
+      }
 
       const orderNum = wdOrder === '' ? null : Number(wdOrder);
       const payload = {
@@ -261,18 +328,46 @@ export default function AdminApp() {
         ...(orderNum !== null && !Number.isNaN(orderNum) ? { order: orderNum } : {}),
       };
       const p3d = placement3dRef.current;
-      if (p3d && p3d.decals?.length > 0) {
+      if (wdEditingId) {
+        if (p3d && p3d.decals?.length > 0) payload.placement3d = p3d;
+        else payload.placement3d = deleteField();
+      } else if (p3d && p3d.decals?.length > 0) {
         payload.placement3d = p3d;
       }
-      await addDoc(collection(db, 'wannados'), payload);
-      setStatus('Wanna-do: gespeichert.');
-      clearWdFile();
-      setWdTitle('');
-      setWdPlacement('');
-      setWdDesc('');
-      setWdOrder('');
-      setWdAvailable(true);
-      placement3dRef.current = null;
+
+      if (wdEditingId) {
+        await updateDoc(doc(db, 'wannados', wdEditingId), payload);
+        setStatus('Wanna-do: Aktualisiert.');
+      } else {
+        await addDoc(collection(db, 'wannados'), payload);
+        setStatus('Wanna-do: gespeichert.');
+      }
+      resetWannadoForm();
+      loadLists();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteWannado = async (row) => {
+    if (!db || !storage || !user) return;
+    const ok = window.confirm(`„${row.title || 'Eintrag'}" wirklich löschen?`);
+    if (!ok) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      const sref = storageRefFromDownloadUrl(storage, row.src);
+      if (sref)
+        try {
+          await deleteObject(sref);
+        } catch {
+          /* Datei schon weg oder Pfad unbekannt */
+        }
+      await deleteDoc(doc(db, 'wannados', row.id));
+      if (wdEditingId === row.id) resetWannadoForm();
+      setStatus('Wanna-do gelöscht.');
       loadLists();
     } catch (err) {
       setStatus(err.message || String(err));
@@ -463,7 +558,7 @@ export default function AdminApp() {
 
       {tab === 'wannados' && (
         <section className="admin-section">
-          <h3 className="admin-h3">Neues Wanna-do</h3>
+          <h3 className="admin-h3">{wdEditingId ? 'Wanna-do bearbeiten' : 'Neues Wanna-do'}</h3>
           <p className="admin-lead cormorant">
             Pflichtfelder wie auf der Hauptseite: <code>src</code>, <code>title</code>, <code>style</code>,{' '}
             <code>placement</code>, <code>target</code>. Optional: <code>desc</code>, <code>available</code>,{' '}
@@ -471,12 +566,12 @@ export default function AdminApp() {
           </p>
           <form className="admin-form" onSubmit={submitWannado}>
             <div className="field">
-              <label>Motiv-Bild</label>
+              <label>Motiv-Bild {wdEditingId && '(optional — leer lassen behält aktuelles Bild)'}</label>
               <input type="file" accept="image/*" onChange={onWdFile} />
             </div>
-            {wdPreview && (
+            {(wdPreview || wdRemoteSrc) && (
               <div className="admin-preview">
-                <img src={wdPreview} alt="Vorschau Motiv" />
+                <img src={wdPreview || wdRemoteSrc} alt="Vorschau Motiv" />
               </div>
             )}
             <div className="field">
@@ -543,9 +638,10 @@ export default function AdminApp() {
               </div>
               <Suspense fallback={<div className="body3d-loading">3D wird geladen …</div>}>
                 <Body3DViewer
+                  key={`${wdEditingId || 'new'}-${wdRemoteSrc || ''}-${wdPreview || ''}`}
                   variant="admin"
-                  tatSrc={wdPreview || null}
-                  initialPlacement3d={null}
+                  tatSrc={wdPreview || wdRemoteSrc || null}
+                  initialPlacement3d={wdPlacementInitial}
                   onPlacementChange={(serialized) => {
                     placement3dRef.current = serialized;
                   }}
@@ -553,9 +649,16 @@ export default function AdminApp() {
               </Suspense>
             </div>
 
-            <button type="submit" className="btn-primary" style={{ marginTop: 24 }} disabled={busy}>
-              Motiv hochladen & speichern
-            </button>
+            <div className="admin-form-actions">
+              <button type="submit" className="btn-primary" style={{ marginTop: 24 }} disabled={busy}>
+                {wdEditingId ? 'Änderungen speichern' : 'Motiv hochladen & speichern'}
+              </button>
+              {wdEditingId && (
+                <button type="button" className="page-back" style={{ marginTop: 24 }} onClick={() => resetWannadoForm()}>
+                  Abbrechen
+                </button>
+              )}
+            </div>
           </form>
 
           <h3 className="admin-h3" style={{ marginTop: 48 }}>
@@ -563,14 +666,24 @@ export default function AdminApp() {
           </h3>
           <ul className="admin-doc-list">
             {wannadoRows.map((row) => (
-              <li key={row.id} className="admin-doc-item">
-                <img src={row.src} alt="" className="admin-doc-thumb" />
-                <div>
-                  <div className="admin-doc-title">{row.title}</div>
-                  <div className="admin-doc-meta">
-                    {row.style} · {row.placement} · {row.target}
+              <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                <button type="button" className="admin-doc-main" onClick={() => loadWannadoForEdit(row)}>
+                  <img src={row.src} alt="" className="admin-doc-thumb" />
+                  <div className="admin-doc-main-text">
+                    <div className="admin-doc-title">{row.title}</div>
+                    <div className="admin-doc-meta">
+                      {row.style} · {row.placement} · {row.target}
+                    </div>
+                    <code className="admin-doc-id">{row.id}</code>
                   </div>
-                  <code className="admin-doc-id">{row.id}</code>
+                </button>
+                <div className="admin-doc-actions">
+                  <button type="button" className="gal-chip" onClick={() => loadWannadoForEdit(row)}>
+                    Bearbeiten
+                  </button>
+                  <button type="button" className="gal-chip admin-doc-delete" onClick={() => deleteWannado(row)}>
+                    Löschen
+                  </button>
                 </div>
               </li>
             ))}
