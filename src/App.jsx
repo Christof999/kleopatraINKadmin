@@ -375,7 +375,7 @@ function WannaDos({ onBack, onBook }) {
             <h3 className="wd-3d-title">Tattoo visualisieren</h3>
             <p className="wd-3d-sub">
               {viewItem
-                ? `„${viewItem.title}" — klick auf den Körper um es zu platzieren`
+                ? `„${viewItem.title}" — einmal auf den Körper klicken, dann ziehen zum Verschieben (Shift + Ziehen = Größe)`
                 : 'Wähle ein Motiv aus und klicke auf „Auf Körper zeigen"'}
             </p>
           </div>

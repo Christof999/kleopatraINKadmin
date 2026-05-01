@@ -1,5 +1,5 @@
 import { Suspense, useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
@@ -90,10 +90,23 @@ function TattooDecal({ mesh, point, normal, size, texture }) {
   );
 }
 
-// ── Body model ────────────────────────────────────────────────────────────────
+// ── Body + eine Platzierung: erster Klick setzt, dann ziehen / Shift+ziehen ───
 
-function BodyModel({ gender, meshListRef, onMeshesReady, onPlace, canPlace }) {
+function BodyPlaceAndDrag({
+  gender,
+  meshListRef,
+  onMeshesReady,
+  texture,
+  decal,
+  defaultSize,
+  onFirstPlace,
+  onDecalChange,
+  setOrbitEnabled,
+}) {
   const { scene } = useGLTF(MODELS[gender]);
+  const { camera, gl } = useThree();
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const dragRef = useRef(null);
 
   const { cloned, groupPos, groupScale } = useMemo(() => {
     const c = scene.clone(true);
@@ -109,24 +122,111 @@ function BodyModel({ gender, meshListRef, onMeshesReady, onPlace, canPlace }) {
     onMeshesReady?.();
   }, [cloned, meshListRef, onMeshesReady]);
 
+  const hitFromClient = useCallback(
+    (clientX, clientY) => {
+      const meshes = meshListRef.current;
+      if (!meshes?.length) return null;
+      const rect = gl.domElement.getBoundingClientRect();
+      const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (!hits.length) return null;
+      const hit = hits[0];
+      const mesh = hit.object;
+      const meshIndex = meshes.indexOf(mesh);
+      if (meshIndex < 0) return null;
+      const nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+      const wn = hit.face.normal.clone().applyMatrix3(nm).normalize();
+      return {
+        meshIndex,
+        point: hit.point.clone(),
+        normal: wn,
+      };
+    },
+    [camera, gl, meshListRef, raycaster],
+  );
+
+  const endDrag = useCallback(() => {
+    dragRef.current = null;
+    setOrbitEnabled(true);
+  }, [setOrbitEnabled]);
+
+  useEffect(() => {
+    const onMove = (ev) => {
+      const d = dragRef.current;
+      if (!d || !decal) return;
+
+      if (d.type === 'scale') {
+        const dy = ev.clientY - d.startY;
+        const next = THREE.MathUtils.clamp(d.startSize - dy * 0.0028, 0.05, 0.48);
+        onDecalChange({ ...decal, size: next });
+        return;
+      }
+
+      if (d.type === 'move') {
+        const hit = hitFromClient(ev.clientX, ev.clientY);
+        if (hit) {
+          onDecalChange({
+            ...decal,
+            meshIndex: hit.meshIndex,
+            point: hit.point,
+            normal: hit.normal,
+            mesh: null,
+          });
+        }
+      }
+    };
+
+    const onUp = () => {
+      if (dragRef.current) endDrag();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [decal, endDrag, hitFromClient, onDecalChange]);
+
   const handlePointerDown = useCallback(
     (e) => {
       e.stopPropagation();
-      if (!canPlace || !e.face || !(e.object instanceof THREE.Mesh)) return;
+      if (!texture || !e.face || !(e.object instanceof THREE.Mesh)) return;
+
+      const meshes = meshListRef.current || [];
       const mesh = e.object;
-      const list = meshListRef.current || [];
-      const meshIndex = list.indexOf(mesh);
+      const meshIndex = meshes.indexOf(mesh);
       if (meshIndex < 0) return;
+
       const nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
       const wn = e.face.normal.clone().applyMatrix3(nm).normalize();
-      onPlace({
-        mesh,
-        meshIndex,
-        point: e.point.clone(),
-        normal: wn,
-      });
+
+      if (!decal) {
+        onFirstPlace({
+          meshIndex,
+          point: e.point.clone(),
+          normal: wn,
+          size: defaultSize,
+        });
+        return;
+      }
+
+      if (e.shiftKey) {
+        dragRef.current = {
+          type: 'scale',
+          startY: e.clientY,
+          startSize: decal.size,
+        };
+      } else {
+        dragRef.current = { type: 'move' };
+      }
+      setOrbitEnabled(false);
     },
-    [canPlace, meshListRef, onPlace],
+    [decal, defaultSize, meshListRef, onFirstPlace, setOrbitEnabled, texture],
   );
 
   return (
@@ -138,28 +238,55 @@ function BodyModel({ gender, meshListRef, onMeshesReady, onPlace, canPlace }) {
 
 // ── Three scene ───────────────────────────────────────────────────────────────
 
-function Scene({ gender, meshListRef, meshTick, decals, texture, onPlace, onMeshesReady }) {
+function Scene({
+  gender,
+  meshListRef,
+  meshTick,
+  decal,
+  texture,
+  defaultSize,
+  onFirstPlace,
+  onDecalChange,
+  orbitEnabled,
+  setOrbitEnabled,
+  onMeshesReady,
+}) {
   return (
     <>
       <ambientLight intensity={0.65} />
       <directionalLight position={[2, 4, 3]} intensity={1.3} castShadow={false} />
       <directionalLight position={[-2, 1, -2]} intensity={0.35} />
       <Suspense fallback={null}>
-        <BodyModel
+        <BodyPlaceAndDrag
           gender={gender}
           meshListRef={meshListRef}
           onMeshesReady={onMeshesReady}
-          onPlace={onPlace}
-          canPlace={!!texture}
+          texture={texture}
+          decal={decal}
+          defaultSize={defaultSize}
+          onFirstPlace={onFirstPlace}
+          onDecalChange={onDecalChange}
+          setOrbitEnabled={setOrbitEnabled}
         />
       </Suspense>
-      {texture &&
-        decals.map((d, i) => {
-          const mesh = meshListRef.current?.[d.meshIndex];
-          if (!mesh) return null;
-          return <TattooDecal key={`${meshTick}-${i}`} mesh={mesh} point={d.point} normal={d.normal} size={d.size} texture={texture} />;
-        })}
-      <OrbitControls makeDefault enablePan={false} minDistance={0.3} maxDistance={8} target={[0, 0, 0]} />
+      {texture && decal && (
+        <TattooDecal
+          key={`${meshTick}-${decal.meshIndex}`}
+          mesh={meshListRef.current?.[decal.meshIndex]}
+          point={decal.point}
+          normal={decal.normal}
+          size={decal.size}
+          texture={texture}
+        />
+      )}
+      <OrbitControls
+        makeDefault
+        enablePan={false}
+        minDistance={0.3}
+        maxDistance={8}
+        target={[0, 0, 0]}
+        enabled={orbitEnabled}
+      />
     </>
   );
 }
@@ -173,10 +300,11 @@ function Scene({ gender, meshListRef, meshTick, decals, texture, onPlace, onMesh
  */
 export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlacementChange }) {
   const [gender, setGender] = useState(initialPlacement3d?.gender || 'female');
-  const [decals, setDecals] = useState([]);
+  const [decal, setDecal] = useState(null);
   const [texture, setTexture] = useState(null);
   const [decalSize, setDecalSize] = useState(initialPlacement3d?.decalSize ?? 0.18);
   const [meshTick, setMeshTick] = useState(0);
+  const [orbitEnabled, setOrbitEnabled] = useState(true);
   const texRef = useRef(null);
   const sizeRef = useRef(decalSize);
   const meshListRef = useRef([]);
@@ -188,7 +316,7 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
   }, []);
 
   useEffect(() => {
-    setDecals([]);
+    setDecal(null);
     hydratedKeyRef.current = '';
     if (onPlacementChange) onPlacementChange(null);
   }, [tatSrc, onPlacementChange]);
@@ -215,37 +343,48 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
   }, [tatSrc]);
 
   const emitSerialized = useCallback(
-    (nextDecals, g = gender, size = sizeRef.current) => {
+    (nextDecal, g = gender, sizeFallback = sizeRef.current) => {
       if (!onPlacementChange) return;
-      if (!tatSrc || nextDecals.length === 0) {
+      if (!tatSrc || !nextDecal) {
         onPlacementChange(null);
         return;
       }
-      onPlacementChange(serializeDecals(g, size, nextDecals));
+      const sz = nextDecal.size ?? sizeFallback;
+      onPlacementChange(serializeDecals(g, sz, [nextDecal]));
     },
     [gender, onPlacementChange, tatSrc],
   );
 
-  const handlePlace = useCallback(
+  const handleFirstPlace = useCallback(
     (d) => {
-      setDecals((p) => {
-        const next = [...p, { ...d, size: sizeRef.current }];
-        emitSerialized(next);
-        return next;
-      });
+      const next = { ...d, mesh: null };
+      setDecal(next);
+      setDecalSize(next.size);
+      sizeRef.current = next.size;
+      emitSerialized(next);
+    },
+    [emitSerialized],
+  );
+
+  const handleDecalChange = useCallback(
+    (next) => {
+      setDecal(next);
+      setDecalSize(next.size);
+      sizeRef.current = next.size;
+      emitSerialized(next);
     },
     [emitSerialized],
   );
 
   const changeGender = (g) => {
     setGender(g);
-    setDecals([]);
-    emitSerialized([], g);
+    setDecal(null);
+    emitSerialized(null, g);
   };
 
-  const clearDecals = () => {
-    setDecals([]);
-    emitSerialized([]);
+  const clearDecal = () => {
+    setDecal(null);
+    emitSerialized(null);
   };
 
   useEffect(() => {
@@ -254,12 +393,18 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
     if (key === hydratedKeyRef.current) return;
     hydratedKeyRef.current = key;
     setGender(initialPlacement3d.gender || 'female');
-    if (typeof initialPlacement3d.decalSize === 'number') {
-      setDecalSize(initialPlacement3d.decalSize);
-      sizeRef.current = initialPlacement3d.decalSize;
+    const list = decalsFromSerialized(initialPlacement3d);
+    const first = list[0];
+    if (first) {
+      if (typeof initialPlacement3d.decalSize === 'number') {
+        setDecalSize(initialPlacement3d.decalSize);
+        sizeRef.current = initialPlacement3d.decalSize;
+      }
+      setDecal({ ...first, size: first.size ?? initialPlacement3d.decalSize ?? 0.18 });
     }
-    setDecals(decalsFromSerialized(initialPlacement3d));
   }, [initialPlacement3d]);
+
+  const hasDecal = !!decal;
 
   return (
     <div className="body3d-wrap">
@@ -286,49 +431,59 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
           <input
             type="range"
             min={0.05}
-            max={0.4}
+            max={0.48}
             step={0.01}
             value={decalSize}
             onChange={(e) => {
               const v = Number(e.target.value);
               setDecalSize(v);
               sizeRef.current = v;
-              setDecals((prev) => {
-                if (prev.length === 0) return prev;
-                const mapped = prev.map((x) => ({ ...x, size: v }));
-                emitSerialized(mapped, gender, v);
-                return mapped;
+              setDecal((prev) => {
+                if (!prev) return prev;
+                const next = { ...prev, size: v };
+                emitSerialized(next, gender, v);
+                return next;
               });
             }}
           />
         </label>
 
-        {decals.length > 0 && (
-          <button type="button" className="body3d-clear" onClick={clearDecals}>
+        {hasDecal && (
+          <button type="button" className="body3d-clear" onClick={clearDecal}>
             × löschen
           </button>
         )}
       </div>
 
       <p className="body3d-hint">
-        {tatSrc
-          ? 'Klick auf den Körper um das Motiv zu platzieren · Ziehen zum Drehen'
-          : 'Lade oder wähle ein Motiv — dann hier auf den Körper klicken'}
+        {!tatSrc && 'Lade oder wähle ein Motiv — dann hier auf den Körper klicken'}
+        {tatSrc && !hasDecal && 'Erster Klick auf den Körper setzt das Motiv · danach ziehen zum Verschieben'}
+        {tatSrc && hasDecal && (
+          <>
+            Auf der Haut ziehen = verschieben · <strong>Shift</strong> halten und ziehen (hoch/runter) = Größe · Ansicht drehen wie gewohnt (wenn nicht gerade gezogen wird)
+          </>
+        )}
       </p>
 
       <Canvas
         className="body3d-canvas"
         camera={{ position: [0, 0, 3.2], fov: 55, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: true }}
-        style={{ cursor: tatSrc ? 'crosshair' : 'grab' }}
+        style={{
+          cursor: !tatSrc ? 'grab' : !hasDecal ? 'crosshair' : 'grab',
+        }}
       >
         <Scene
           gender={gender}
           meshListRef={meshListRef}
           meshTick={meshTick}
-          decals={decals}
+          decal={decal}
           texture={texture}
-          onPlace={handlePlace}
+          defaultSize={decalSize}
+          onFirstPlace={handleFirstPlace}
+          onDecalChange={handleDecalChange}
+          orbitEnabled={orbitEnabled}
+          setOrbitEnabled={setOrbitEnabled}
           onMeshesReady={onMeshesReady}
         />
       </Canvas>
