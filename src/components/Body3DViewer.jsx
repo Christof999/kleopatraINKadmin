@@ -3,12 +3,17 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
-import { BODY_MODEL_ADMIN, BODY_MODEL_PUBLIC, getBodyModelUrls } from '../constants/bodyModels';
+import {
+  BODY_MODEL_ADMIN,
+  BODY_MODEL_PUBLIC,
+  getBodyModelUrls,
+  normalizeStoredBodyModelUrl,
+} from '../constants/bodyModels';
 
 function resolveActiveModelUrl(gender, placement3d, variant) {
   const defaults = getBodyModelUrls(variant);
   if (placement3d?.bodyModelUrl && placement3d.gender === gender) {
-    return placement3d.bodyModelUrl;
+    return normalizeStoredBodyModelUrl(placement3d.bodyModelUrl);
   }
   return defaults[gender];
 }
