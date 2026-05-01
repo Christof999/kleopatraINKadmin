@@ -112,6 +112,7 @@ export default function AdminApp() {
   const [wdEditingId, setWdEditingId] = useState(null);
   const [wdRemoteSrc, setWdRemoteSrc] = useState(null);
   const [wdPlacementInitial, setWdPlacementInitial] = useState(null);
+  const [galleryRows, setGalleryRows] = useState([]);
   const [wannadoRows, setWannadoRows] = useState([]);
 
   useEffect(() => {
