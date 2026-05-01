@@ -14,6 +14,8 @@
 // Dateinamen-Tipp: sprechende Namen werden als Beschreibung angezeigt,
 // z. B.  blume-handgelenk.jpg  →  "Blume Handgelenk"
 
+import { TATTOO_STYLES } from './constants/styles';
+
 const rawImages = import.meta.glob(
   './assets/gallery/**/*.{jpg,jpeg,png,webp,JPG,JPEG,PNG,WEBP}',
   { eager: true }
@@ -39,7 +41,7 @@ function pieceFromFilename(filename) {
     .trim();
 }
 
-export const GAL_FILTERS = ['Alle', 'Fineline', 'Dotwork', 'Realism', 'Black & White', 'Neotraditional', 'Oldschool'];
+export const GAL_FILTERS = ['Alle', ...TATTOO_STYLES];
 
 export const GAL_ITEMS = Object.entries(rawImages)
   .map(([path, mod]) => {

@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Öffentliche Leseregeln für die Website anpassen (z. B. nur lesen).
+    match /gallery/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /wannados/{docId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+  }
+}
