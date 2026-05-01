@@ -378,10 +378,15 @@ export default function AdminApp() {
 
   if (!cfg) {
     return (
-      <div className="page with-bg admin-wrap">
-        <PageHead kicker="Konfiguration" title="Firebase" titleEm="fehlt" meta={<b>.env</b>} />
+      <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
+        <PageHead kicker="Konfiguration" title="Firebase" titleEm="unvollständig" meta={<b>.env</b>} />
         <p className="admin-error">
-          Lege eine <code>.env</code> mit <code>VITE_FIREBASE_*</code> an (siehe <code>.env.example</code>).
+          Alle <code>VITE_FIREBASE_*</code> Werte in Vercel/ <code>.env</code> setzen:{' '}
+          <code>API_KEY</code>, <code>AUTH_DOMAIN</code>, <code>PROJECT_ID</code>, <code>STORAGE_BUCKET</code>,{' '}
+          <code>MESSAGING_SENDER_ID</code>, <code>APP_ID</code> (siehe <code>.env.example</code>).
+        </p>
+        <p className="cormorant" style={{ color: 'var(--ivory-dim)', fontSize: 16 }}>
+          Fehlt ein Wert, bricht die Firebase-App nach dem Login ab — dann erscheint die Seite leer.
         </p>
       </div>
     );
@@ -389,7 +394,7 @@ export default function AdminApp() {
 
   if (!user) {
     return (
-      <div className="page with-bg admin-wrap">
+      <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
         <PageHead
           kicker="Kleopatra INK"
           title="Admin"
@@ -432,7 +437,7 @@ export default function AdminApp() {
   }
 
   return (
-    <div className="page with-bg admin-wrap">
+    <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
       <header className="admin-top">
         <div className="admin-brand">
           <span className="admin-brand-mark">K</span>

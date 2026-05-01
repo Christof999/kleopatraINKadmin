@@ -2,6 +2,7 @@
   max-width: 960px;
   margin: 0 auto;
   padding-top: 24px;
+  min-height: 100vh;
 }
 
 .admin-page-head {

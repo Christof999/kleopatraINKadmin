@@ -16,7 +16,8 @@ export function getFirebaseConfig() {
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
   };
-  if (!cfg.apiKey || !cfg.projectId) return null;
+  const required = [cfg.apiKey, cfg.authDomain, cfg.projectId, cfg.storageBucket, cfg.messagingSenderId, cfg.appId];
+  if (required.some((v) => !v || String(v).trim() === '')) return null;
   return cfg;
 }
 
