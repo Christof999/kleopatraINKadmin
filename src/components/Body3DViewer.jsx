@@ -3,19 +3,19 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
-import { getBodyModelUrls } from '../constants/bodyModels';
+import { BODY_MODEL_ADMIN, BODY_MODEL_PUBLIC, getBodyModelUrls } from '../constants/bodyModels';
 
-function resolveActiveModelUrl(gender, placement3d) {
-  const defaults = getBodyModelUrls();
+function resolveActiveModelUrl(gender, placement3d, variant) {
+  const defaults = getBodyModelUrls(variant);
   if (placement3d?.bodyModelUrl && placement3d.gender === gender) {
     return placement3d.bodyModelUrl;
   }
   return defaults[gender];
 }
 
-const DEFAULT_URLS = getBodyModelUrls();
-useGLTF.preload(DEFAULT_URLS.female);
-useGLTF.preload(DEFAULT_URLS.male);
+useGLTF.preload(BODY_MODEL_PUBLIC.female);
+useGLTF.preload(BODY_MODEL_ADMIN.female);
+useGLTF.preload(BODY_MODEL_PUBLIC.male);
 
 function makeOrientation(point, worldNormal) {
   const helper = new THREE.Object3D();
@@ -302,9 +302,15 @@ function Scene({
 /**
  * @param {string|null} tatSrc – Bild-URL oder Object-URL
  * @param {object|null} initialPlacement3d – gespeichertes Objekt von serializeDecals()
+ * @param {'public' | 'admin'} [variant] – welches Standard-Körpermodell (Admin = zweites Frauen-GLB)
  * @param {(serialized: object|null) => void} [onPlacementChange] – Callback bei jeder Änderung der Platzierungen
  */
-export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlacementChange }) {
+export default function Body3DViewer({
+  tatSrc,
+  initialPlacement3d = null,
+  onPlacementChange,
+  variant = 'public',
+}) {
   const [gender, setGender] = useState(initialPlacement3d?.gender || 'female');
   const [decal, setDecal] = useState(null);
   const [texture, setTexture] = useState(null);
@@ -318,8 +324,8 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
   sizeRef.current = decalSize;
 
   const activeModelUrl = useMemo(
-    () => resolveActiveModelUrl(gender, initialPlacement3d),
-    [gender, initialPlacement3d],
+    () => resolveActiveModelUrl(gender, initialPlacement3d, variant),
+    [gender, initialPlacement3d, variant],
   );
 
   const onMeshesReady = useCallback(() => {
@@ -361,10 +367,10 @@ export default function Body3DViewer({ tatSrc, initialPlacement3d = null, onPlac
         return;
       }
       const sz = nextDecal.size ?? sizeFallback;
-      const bodyModelUrl = resolveActiveModelUrl(g, null);
+      const bodyModelUrl = resolveActiveModelUrl(g, null, variant);
       onPlacementChange(serializeDecals(g, sz, [nextDecal], bodyModelUrl));
     },
-    [gender, onPlacementChange, tatSrc],
+    [gender, onPlacementChange, tatSrc, variant],
   );
 
   const handleFirstPlace = useCallback(

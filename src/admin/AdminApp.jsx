@@ -543,6 +543,7 @@ export default function AdminApp() {
               </div>
               <Suspense fallback={<div className="body3d-loading">3D wird geladen …</div>}>
                 <Body3DViewer
+                  variant="admin"
                   tatSrc={wdPreview || null}
                   initialPlacement3d={null}
                   onPlacementChange={(serialized) => {
