@@ -113,6 +113,7 @@ function BodyPlaceAndDrag({
   onFirstPlace,
   onDecalChange,
   setOrbitEnabled,
+  readOnly,
 }) {
   const { scene } = useGLTF(modelUrl);
   const { camera, gl } = useThree();
@@ -164,6 +165,7 @@ function BodyPlaceAndDrag({
   }, [setOrbitEnabled]);
 
   useEffect(() => {
+    if (readOnly) return undefined;
     const onMove = (ev) => {
       const d = dragRef.current;
       if (!d || !decal) return;
@@ -201,11 +203,12 @@ function BodyPlaceAndDrag({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [decal, endDrag, hitFromClient, onDecalChange]);
+  }, [decal, endDrag, hitFromClient, onDecalChange, readOnly]);
 
   const handlePointerDown = useCallback(
     (e) => {
       e.stopPropagation();
+      if (readOnly) return;
       if (!texture || !e.face || !(e.object instanceof THREE.Mesh)) return;
 
       const meshes = meshListRef.current || [];
@@ -237,7 +240,7 @@ function BodyPlaceAndDrag({
       }
       setOrbitEnabled(false);
     },
-    [decal, defaultSize, meshListRef, onFirstPlace, setOrbitEnabled, texture],
+    [decal, defaultSize, meshListRef, onFirstPlace, readOnly, setOrbitEnabled, texture],
   );
 
   return (
@@ -261,6 +264,7 @@ function Scene({
   orbitEnabled,
   setOrbitEnabled,
   onMeshesReady,
+  readOnly,
 }) {
   return (
     <>
@@ -278,6 +282,7 @@ function Scene({
           onFirstPlace={onFirstPlace}
           onDecalChange={onDecalChange}
           setOrbitEnabled={setOrbitEnabled}
+          readOnly={readOnly}
         />
       </Suspense>
       {texture && decal && (
@@ -296,7 +301,7 @@ function Scene({
         minDistance={0.3}
         maxDistance={8}
         target={[0, 0, 0]}
-        enabled={orbitEnabled}
+        enabled={readOnly || orbitEnabled}
       />
     </>
   );
@@ -308,7 +313,7 @@ function Scene({
  * @param {string|null} tatSrc – Bild-URL oder Object-URL
  * @param {object|null} initialPlacement3d – gespeichertes Objekt von serializeDecals()
  * @param {'public' | 'admin'} [variant] – welches Standard-Körpermodell (Admin = zweites Frauen-GLB)
- * @param {(serialized: object|null) => void} [onPlacementChange] – Callback bei jeder Änderung der Platzierungen
+ * @param {(serialized: object|null) => void} [onPlacementChange] – Callback bei jeder Änderung der Platzierungen (fehlt = nur Anzeige)
  */
 export default function Body3DViewer({
   tatSrc,
@@ -316,6 +321,7 @@ export default function Body3DViewer({
   onPlacementChange,
   variant = 'public',
 }) {
+  const readOnly = !onPlacementChange;
   const [gender, setGender] = useState(initialPlacement3d?.gender || 'female');
   const [decal, setDecal] = useState(null);
   const [texture, setTexture] = useState(null);
@@ -338,9 +344,31 @@ export default function Body3DViewer({
   }, []);
 
   useEffect(() => {
-    setDecal(null);
-    hydratedKeyRef.current = '';
-  }, [tatSrc]);
+    if (!tatSrc) {
+      hydratedKeyRef.current = '';
+      setDecal(null);
+      return;
+    }
+    const placementKey = initialPlacement3d ? JSON.stringify(initialPlacement3d) : '';
+    const key = `${tatSrc}|${placementKey}`;
+    if (key === hydratedKeyRef.current) return;
+    hydratedKeyRef.current = key;
+
+    if (initialPlacement3d?.decals?.length) {
+      setGender(initialPlacement3d.gender || 'female');
+      const list = decalsFromSerialized(initialPlacement3d);
+      const first = list[0];
+      if (first) {
+        if (typeof initialPlacement3d.decalSize === 'number') {
+          setDecalSize(initialPlacement3d.decalSize);
+          sizeRef.current = initialPlacement3d.decalSize;
+        }
+        setDecal({ ...first, size: first.size ?? initialPlacement3d.decalSize ?? 0.18 });
+      }
+    } else {
+      setDecal(null);
+    }
+  }, [tatSrc, initialPlacement3d]);
 
   useEffect(() => {
     if (!tatSrc) {
@@ -399,91 +427,84 @@ export default function Body3DViewer({
   );
 
   const changeGender = (g) => {
+    if (readOnly) return;
     setGender(g);
     setDecal(null);
     emitSerialized(null, g);
   };
 
   const clearDecal = () => {
+    if (readOnly) return;
     setDecal(null);
     emitSerialized(null);
   };
-
-  useEffect(() => {
-    if (!initialPlacement3d || !initialPlacement3d.decals?.length) return;
-    const key = JSON.stringify(initialPlacement3d);
-    if (key === hydratedKeyRef.current) return;
-    hydratedKeyRef.current = key;
-    setGender(initialPlacement3d.gender || 'female');
-    const list = decalsFromSerialized(initialPlacement3d);
-    const first = list[0];
-    if (first) {
-      if (typeof initialPlacement3d.decalSize === 'number') {
-        setDecalSize(initialPlacement3d.decalSize);
-        sizeRef.current = initialPlacement3d.decalSize;
-      }
-      setDecal({ ...first, size: first.size ?? initialPlacement3d.decalSize ?? 0.18 });
-    }
-  }, [initialPlacement3d]);
 
   const hasDecal = !!decal;
 
   return (
     <div className="body3d-wrap">
-      <div className="body3d-controls">
-        <div className="body3d-toggle">
-          <button
-            type="button"
-            className={`body3d-btn${gender === 'female' ? ' active' : ''}`}
-            onClick={() => changeGender('female')}
-          >
-            Frau
-          </button>
-          <button
-            type="button"
-            className={`body3d-btn${gender === 'male' ? ' active' : ''}`}
-            onClick={() => changeGender('male')}
-          >
-            Mann
-          </button>
+      {!readOnly && (
+        <div className="body3d-controls">
+          <div className="body3d-toggle">
+            <button
+              type="button"
+              className={`body3d-btn${gender === 'female' ? ' active' : ''}`}
+              onClick={() => changeGender('female')}
+            >
+              Frau
+            </button>
+            <button
+              type="button"
+              className={`body3d-btn${gender === 'male' ? ' active' : ''}`}
+              onClick={() => changeGender('male')}
+            >
+              Mann
+            </button>
+          </div>
+
+          <label className="body3d-size-lbl">
+            <span>Größe</span>
+            <input
+              type="range"
+              min={0.05}
+              max={0.48}
+              step={0.01}
+              value={decalSize}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setDecalSize(v);
+                sizeRef.current = v;
+                setDecal((prev) => {
+                  if (!prev) return prev;
+                  const next = { ...prev, size: v };
+                  emitSerialized(next, gender, v);
+                  return next;
+                });
+              }}
+            />
+          </label>
+
+          {hasDecal && (
+            <button type="button" className="body3d-clear" onClick={clearDecal}>
+              × löschen
+            </button>
+          )}
         </div>
-
-        <label className="body3d-size-lbl">
-          <span>Größe</span>
-          <input
-            type="range"
-            min={0.05}
-            max={0.48}
-            step={0.01}
-            value={decalSize}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setDecalSize(v);
-              sizeRef.current = v;
-              setDecal((prev) => {
-                if (!prev) return prev;
-                const next = { ...prev, size: v };
-                emitSerialized(next, gender, v);
-                return next;
-              });
-            }}
-          />
-        </label>
-
-        {hasDecal && (
-          <button type="button" className="body3d-clear" onClick={clearDecal}>
-            × löschen
-          </button>
-        )}
-      </div>
+      )}
 
       <p className="body3d-hint">
-        {!tatSrc && 'Lade oder wähle ein Motiv — dann hier auf den Körper klicken'}
-        {tatSrc && !hasDecal && 'Erster Klick auf den Körper setzt das Motiv · danach ziehen zum Verschieben'}
-        {tatSrc && hasDecal && (
+        {!readOnly && !tatSrc && 'Lade oder wähle ein Motiv — dann hier auf den Körper klicken'}
+        {!readOnly && tatSrc && !hasDecal && 'Erster Klick auf den Körper setzt das Motiv · danach ziehen zum Verschieben'}
+        {!readOnly && tatSrc && hasDecal && (
           <>
             Auf der Haut ziehen = verschieben · <strong>Shift</strong> halten und ziehen (hoch/runter) = Größe · Ansicht drehen wie gewohnt (wenn nicht gerade gezogen wird)
           </>
+        )}
+        {readOnly && tatSrc && !hasDecal && initialPlacement3d && (
+          <>Gespeicherte 3D-Platzierung fehlt — bitte im Admin neu platzieren und speichern.</>
+        )}
+        {readOnly && tatSrc && hasDecal && (
+          <>Gespeicherte Platzierung auf dem Körper · Ansicht mit der Maus drehen.</>
         )}
       </p>
 
@@ -492,7 +513,7 @@ export default function Body3DViewer({
         camera={{ position: [0, 0, 3.2], fov: 55, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: true }}
         style={{
-          cursor: !tatSrc ? 'grab' : !hasDecal ? 'crosshair' : 'grab',
+          cursor: readOnly ? 'grab' : !tatSrc ? 'grab' : !hasDecal ? 'crosshair' : 'grab',
         }}
       >
         <Scene
@@ -507,6 +528,7 @@ export default function Body3DViewer({
           orbitEnabled={orbitEnabled}
           setOrbitEnabled={setOrbitEnabled}
           onMeshesReady={onMeshesReady}
+          readOnly={readOnly}
         />
       </Canvas>
     </div>
