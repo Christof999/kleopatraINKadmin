@@ -114,6 +114,7 @@ export default function AdminApp() {
   const [wdPlacementInitial, setWdPlacementInitial] = useState(null);
   const [galleryRows, setGalleryRows] = useState([]);
   const [wannadoRows, setWannadoRows] = useState([]);
+  const placement3dRef = useRef(null);
 
   useEffect(() => {
     if (!auth) return undefined;
