@@ -21,7 +21,7 @@ export default class AdminErrorBoundary extends Component {
     if (this.state.err) {
       return (
         <div
-          className="page with-bg admin-wrap"
+          className="page with-bg admin-wrap admin-app"
           style={{ minHeight: '100vh', padding: 32, maxWidth: 640, margin: '0 auto' }}
         >
           <h1 className="page-title" style={{ fontSize: 28, marginBottom: 16 }}>

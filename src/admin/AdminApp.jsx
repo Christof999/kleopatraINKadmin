@@ -380,7 +380,7 @@ export default function AdminApp() {
 
   if (!cfg) {
     return (
-      <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
+      <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
         <PageHead kicker="Konfiguration" title="Firebase" titleEm="unvollständig" meta={<b>.env</b>} />
         <p className="admin-error">
           Alle <code>VITE_FIREBASE_*</code> Werte in Vercel/ <code>.env</code> setzen:{' '}
@@ -396,7 +396,7 @@ export default function AdminApp() {
 
   if (!user) {
     return (
-      <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
+      <div className="page with-bg admin-wrap admin-app admin-login-mode">
         <PageHead
           kicker="Kleopatra INK"
           title="Admin"
@@ -408,7 +408,8 @@ export default function AdminApp() {
             </>
           }
         />
-        <form className="admin-login" onSubmit={onLogin}>
+        <div className="admin-login-card">
+          <form className="admin-login" onSubmit={onLogin}>
           <div className="field">
             <label>E-Mail</label>
             <input
@@ -434,12 +435,13 @@ export default function AdminApp() {
             Anmelden
           </button>
         </form>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="page with-bg admin-wrap" style={{ minHeight: '100vh' }}>
+    <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
       <header className="admin-top">
         <div className="admin-brand">
           <span className="admin-brand-mark">K</span>
@@ -448,7 +450,7 @@ export default function AdminApp() {
           </span>
           <span className="admin-badge">Admin</span>
         </div>
-        <button type="button" className="page-back" onClick={onLogout}>
+        <button type="button" className="admin-btn-ghost" onClick={onLogout}>
           Abmelden
         </button>
       </header>
@@ -490,7 +492,8 @@ export default function AdminApp() {
 
       {tab === 'gallery' && (
         <section className="admin-section">
-          <h3 className="admin-h3">Neue Galerie-Bilder</h3>
+          <div className="admin-card">
+            <h3 className="admin-h3">Neue Galerie-Bilder</h3>
           <p className="admin-lead cormorant">
             Schema: <code>src</code>, <code>style</code>, optional <code>piece</code>, optional <code>createdAt</code> (Server).
             Mehrere Dateien wählen — Upload-Fortschritt siehst du unten.
@@ -543,12 +546,12 @@ export default function AdminApp() {
               {galFiles.length > 1 ? `${galFiles.length} Bilder hochladen` : 'Hochladen & speichern'}
             </button>
           </form>
+          </div>
 
-          <h3 className="admin-h3" style={{ marginTop: 48 }}>
-            Zuletzt in Firestore (gallery)
-          </h3>
-          <ul className="admin-doc-list">
-            {galleryRows.map((row) => (
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Zuletzt in Firestore (gallery)</h3>
+            <ul className="admin-doc-list">
+              {galleryRows.map((row) => (
               <li key={row.id} className="admin-doc-item">
                 <img src={row.src} alt="" className="admin-doc-thumb" />
                 <div>
@@ -559,13 +562,15 @@ export default function AdminApp() {
               </li>
             ))}
             {galleryRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
-          </ul>
+            </ul>
+          </div>
         </section>
       )}
 
       {tab === 'wannados' && (
         <section className="admin-section">
-          <h3 className="admin-h3">{wdEditingId ? 'Wanna-do bearbeiten' : 'Neues Wanna-do'}</h3>
+          <div className="admin-card">
+            <h3 className="admin-h3">{wdEditingId ? 'Wanna-do bearbeiten' : 'Neues Wanna-do'}</h3>
           <p className="admin-lead cormorant">
             Pflichtfelder wie auf der Hauptseite: <code>src</code>, <code>title</code>, <code>style</code>,{' '}
             <code>placement</code>, <code>target</code>. Optional: <code>desc</code>, <code>available</code>,{' '}
@@ -657,22 +662,22 @@ export default function AdminApp() {
             </div>
 
             <div className="admin-form-actions">
-              <button type="submit" className="btn-primary" style={{ marginTop: 24 }} disabled={busy}>
+              <button type="submit" className="btn-primary" disabled={busy}>
                 {wdEditingId ? 'Änderungen speichern' : 'Motiv hochladen & speichern'}
               </button>
               {wdEditingId && (
-                <button type="button" className="page-back" style={{ marginTop: 24 }} onClick={() => resetWannadoForm()}>
+                <button type="button" className="admin-btn-ghost" onClick={() => resetWannadoForm()}>
                   Abbrechen
                 </button>
               )}
             </div>
           </form>
+          </div>
 
-          <h3 className="admin-h3" style={{ marginTop: 48 }}>
-            Einträge in Firestore (wannados)
-          </h3>
-          <ul className="admin-doc-list">
-            {wannadoRows.map((row) => (
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Einträge in Firestore (wannados)</h3>
+            <ul className="admin-doc-list">
+              {wannadoRows.map((row) => (
               <li key={row.id} className="admin-doc-item admin-doc-item-row">
                 <button type="button" className="admin-doc-main" onClick={() => loadWannadoForEdit(row)}>
                   <img src={row.src} alt="" className="admin-doc-thumb" />
@@ -695,7 +700,8 @@ export default function AdminApp() {
               </li>
             ))}
             {wannadoRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
-          </ul>
+            </ul>
+          </div>
         </section>
       )}
     </div>
