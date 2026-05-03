@@ -1,0 +1,31 @@
+// Kopie / Referenz — deploybare Datei ist storage.rules (siehe firebase.json).
+//
+// Voraussetzung für Uploads: In der Admin-App mit E-Mail/Passwort (oder anderer
+// Provider) angemeldet — sonst ist request.auth == null → unauthorized.
+//
+// Deploy: npx firebase-tools@latest deploy --only storage
+// (Projekt muss verlinkt sein: firebase use)
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /gallery/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /wannados/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
