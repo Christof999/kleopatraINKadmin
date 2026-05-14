@@ -1014,6 +1014,96 @@ body {
   gap: 16px;
 }
 
+.body3d-wrap--immersive {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  gap: 10px;
+  padding: max(12px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+    max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  background: rgba(6, 5, 4, 0.94);
+  overflow: hidden;
+}
+
+.body3d-immersive-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(212, 165, 55, 0.2);
+}
+
+.body3d-immersive-title {
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.body3d-immersive-close {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  color: var(--ivory-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: background 200ms, color 200ms, border-color 200ms;
+}
+
+.body3d-immersive-close:hover {
+  background: rgba(212, 165, 55, 0.12);
+  color: var(--ivory);
+  border-color: rgba(212, 165, 55, 0.35);
+}
+
+.body3d-expand {
+  flex-shrink: 0;
+  margin-left: auto;
+  background: rgba(212, 165, 55, 0.08);
+  border: 1px solid rgba(212, 165, 55, 0.35);
+  color: var(--gold);
+  font-family: 'Cinzel', serif;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 200ms, border-color 200ms;
+}
+
+.body3d-expand:hover {
+  background: rgba(212, 165, 55, 0.16);
+  border-color: rgba(212, 165, 55, 0.55);
+}
+
+.body3d-readonly-expand-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.body3d-readonly-expand-row .body3d-expand {
+  margin-left: 0;
+}
+
+.body3d-hint kbd {
+  font-family: ui-monospace, 'Cousine', monospace;
+  font-size: 13px;
+  font-style: normal;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ivory);
+}
+
 .body3d-controls {
   display: flex;
   align-items: center;
@@ -1100,14 +1190,29 @@ body {
   background: radial-gradient(ellipse at center, rgba(26, 20, 12, 0.9) 0%, rgba(10, 8, 6, 0.97) 100%);
 }
 
+.body3d-canvas--immersive {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
 @media (max-width: 900px) {
-  .body3d-canvas { height: 500px !important; }
+  .body3d-canvas:not(.body3d-canvas--immersive) { height: 500px !important; }
 }
 
 @media (max-width: 560px) {
-  .body3d-canvas { height: 420px !important; }
+  .body3d-canvas:not(.body3d-canvas--immersive) { height: 420px !important; }
   .body3d-controls { gap: 14px; }
   .body3d-size-lbl input { width: 80px; }
+  .body3d-wrap--immersive .body3d-controls {
+    flex-wrap: wrap;
+  }
+  .body3d-wrap--immersive .body3d-expand {
+    width: 100%;
+    margin-left: 0;
+    order: 10;
+  }
 }
 
 /* Wannado-Banner im Buchungsformular */
