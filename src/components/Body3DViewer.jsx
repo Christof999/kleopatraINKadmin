@@ -296,7 +296,9 @@ function Scene({
           texture={texture}
         />
       )}
+      {/* key: sauberes OrbitControls-Remount bei Canvas-Resize (Safari) */}
       <OrbitControls
+        key={immersive ? 'orbit-immersive' : 'orbit-inline'}
         makeDefault
         target={[0, 0, 0]}
         enabled={readOnly || orbitEnabled}
@@ -308,8 +310,6 @@ function Scene({
               maxDistance: 28,
               minPolarAngle: 0.08,
               maxPolarAngle: Math.PI - 0.08,
-              enableDamping: true,
-              dampingFactor: 0.06,
               rotateSpeed: 0.85,
               zoomSpeed: 1.15,
             }
@@ -408,19 +408,24 @@ export default function Body3DViewer({
     };
   }, [tatSrc]);
 
+  const closeImmersive = useCallback(() => {
+    setOrbitEnabled(true);
+    setImmersiveOpen(false);
+  }, []);
+
   useEffect(() => {
     if (!immersiveOpen) return undefined;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKey = (e) => {
-      if (e.key === 'Escape') setImmersiveOpen(false);
+      if (e.key === 'Escape') closeImmersive();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKey);
     };
-  }, [immersiveOpen]);
+  }, [closeImmersive, immersiveOpen]);
 
   const emitSerialized = useCallback(
     (nextDecal, g = gender, sizeFallback = sizeRef.current) => {
@@ -478,7 +483,7 @@ export default function Body3DViewer({
       {immersiveOpen && (
         <div className="body3d-immersive-bar">
           <span className="body3d-immersive-title">3D-Ansicht</span>
-          <button type="button" className="body3d-immersive-close" onClick={() => setImmersiveOpen(false)}>
+          <button type="button" className="body3d-immersive-close" onClick={closeImmersive}>
             Schließen
           </button>
         </div>
