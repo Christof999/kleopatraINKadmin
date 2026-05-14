@@ -304,13 +304,17 @@ function WannaDos({ onBack, onBook }) {
   const [wdError, setWdError] = useState('');
 
   useEffect(() => {
-    if (!getFirebaseConfig()) return undefined;
     let cancelled = false;
+    if (!getFirebaseConfig()) {
+      setWdError('Firebase-Umgebung (VITE_FIREBASE_*) ist nicht gesetzt — es können keine gespeicherten Motive geladen werden.');
+      setWdLoading(false);
+      return undefined;
+    }
     setWdLoading(true);
     setWdError('');
     fetchWannadosFromFirestore()
       .then((rows) => {
-        if (!cancelled && rows.length > 0) setItems(rows);
+        if (!cancelled) setItems(Array.isArray(rows) ? rows : WANNADO_ITEMS);
       })
       .catch((e) => {
         if (!cancelled) setWdError(e.message || String(e));
