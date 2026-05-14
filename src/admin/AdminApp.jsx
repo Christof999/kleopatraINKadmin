@@ -92,6 +92,7 @@ export default function AdminApp() {
   const [authError, setAuthError] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [listError, setListError] = useState('');
   const [tab, setTab] = useState('gallery');
 
   const [galFiles, setGalFiles] = useState([]);
@@ -123,14 +124,23 @@ export default function AdminApp() {
 
   const loadLists = useCallback(async () => {
     if (!db || !user) return;
+    const parts = [];
     try {
       const gSnap = await getDocs(query(collection(db, 'gallery'), limit(50)));
       setGalleryRows(gSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      parts.push(`Galerie: ${e.message || String(e)}`);
+      setGalleryRows([]);
+    }
+    try {
       const wSnap = await getDocs(query(collection(db, 'wannados'), limit(200)));
       setWannadoRows(wSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
-      setStatus(`Liste: ${e.message || String(e)}`);
+      parts.push(`Wanna-dos: ${e.message || String(e)}`);
+      setWannadoRows([]);
     }
+    if (parts.length) setListError(parts.join(' · '));
+    else setListError('');
   }, [db, user]);
 
   useEffect(() => {
@@ -470,6 +480,12 @@ export default function AdminApp() {
       {status && (
         <p className={`admin-status ${status.includes('fehl') || status.includes('Bitte') ? 'admin-status-warn' : ''}`}>
           {status}
+        </p>
+      )}
+
+      {listError && (
+        <p className="admin-status admin-status-warn" role="alert">
+          {listError}
         </p>
       )}
 
