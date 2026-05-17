@@ -53,6 +53,25 @@ function sortPiercingRows(rows) {
   return [...rows].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 }
 
+function userFullName(row) {
+  const firstName = row.firstName || row.firstname || '';
+  const lastName = row.lastName || row.lastname || '';
+  const combined = `${firstName} ${lastName}`.trim();
+  return row.fullName || row.name || combined || 'Ohne Namen';
+}
+
+function userPhone(row) {
+  return row.phone || row.phoneNumber || row.telephone || row.tel || '';
+}
+
+function sortUserRows(rows) {
+  return [...rows].sort((a, b) => {
+    const nameCompare = userFullName(a).localeCompare(userFullName(b));
+    if (nameCompare !== 0) return nameCompare;
+    return (a.email || '').localeCompare(b.email || '');
+  });
+}
+
 function pieceFromFilename(filename) {
   const base = filename.replace(/\.[^.]+$/, '');
   if (CAMERA_PATTERN.test(base)) return '';
@@ -148,9 +167,15 @@ export default function AdminApp() {
   const [piercingDesc, setPiercingDesc] = useState('');
   const [piercingPrice, setPiercingPrice] = useState('');
   const [piercingEditingId, setPiercingEditingId] = useState(null);
+  const [customerEditingId, setCustomerEditingId] = useState(null);
+  const [customerFirstName, setCustomerFirstName] = useState('');
+  const [customerLastName, setCustomerLastName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [galleryRows, setGalleryRows] = useState([]);
   const [wannadoRows, setWannadoRows] = useState([]);
   const [piercingRows, setPiercingRows] = useState([]);
+  const [customerRows, setCustomerRows] = useState([]);
   const placement3dRef = useRef(null);
 
   useEffect(() => {
@@ -222,6 +247,37 @@ export default function AdminApp() {
             .split(' · ')
             .filter((part) => part && !part.startsWith('Piercings:'));
           return [...otherParts, `Piercings: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
+
+  useEffect(() => {
+    if (!db || !user) {
+      setCustomerRows([]);
+      return undefined;
+    }
+
+    const usersQuery = query(collection(db, 'users'), limit(500));
+    return onSnapshot(
+      usersQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setCustomerRows(sortUserRows(rows));
+        setListError((current) =>
+          current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('User:'))
+            .join(' · '),
+        );
+      },
+      (e) => {
+        setCustomerRows([]);
+        setListError((current) => {
+          const otherParts = current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('User:'));
+          return [...otherParts, `User: ${e.message || String(e)}`].join(' · ');
         });
       },
     );
@@ -320,6 +376,25 @@ export default function AdminApp() {
     setPiercingDesc(row.desc || '');
     setPiercingPrice(row.price != null ? String(row.price).replace('.', ',') : '');
     setTab('piercings');
+  };
+
+  const resetCustomerForm = () => {
+    setCustomerEditingId(null);
+    setCustomerFirstName('');
+    setCustomerLastName('');
+    setCustomerEmail('');
+    setCustomerPhone('');
+  };
+
+  const loadCustomerForEdit = (row) => {
+    const fullName = userFullName(row);
+    const parts = fullName === 'Ohne Namen' ? [] : fullName.split(/\s+/);
+    setCustomerEditingId(row.id);
+    setCustomerFirstName(row.firstName || row.firstname || parts.slice(0, -1).join(' ') || fullName);
+    setCustomerLastName(row.lastName || row.lastname || (parts.length > 1 ? parts.slice(-1).join('') : ''));
+    setCustomerEmail(row.email || '');
+    setCustomerPhone(userPhone(row));
+    setTab('users');
   };
 
   const onWdFile = (e) => {
@@ -551,6 +626,44 @@ export default function AdminApp() {
     }
   };
 
+  const submitCustomer = async (e) => {
+    e.preventDefault();
+    if (!db || !user || !customerEditingId) return;
+
+    const firstName = customerFirstName.trim();
+    const lastName = customerLastName.trim();
+    const email = customerEmail.trim().toLowerCase();
+    const phone = customerPhone.trim();
+
+    if (!firstName || !lastName) {
+      setStatus('User: Vor- und Nachname fehlen.');
+      return;
+    }
+    if (!email) {
+      setStatus('User: E-Mail-Adresse fehlt.');
+      return;
+    }
+
+    setBusy(true);
+    setStatus('');
+    try {
+      await updateDoc(doc(db, 'users', customerEditingId), {
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`.trim(),
+        email,
+        phone,
+        updatedAt: serverTimestamp(),
+      });
+      setStatus('User-Profil aktualisiert.');
+      resetCustomerForm();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!cfg) {
     return (
       <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
@@ -577,7 +690,7 @@ export default function AdminApp() {
           meta={
             <>
               <b>Firestore</b>
-              <div>gallery · wannados · piercings</div>
+              <div>gallery · wannados · piercings · users</div>
             </>
           }
         />
@@ -673,6 +786,13 @@ export default function AdminApp() {
           onClick={() => setTab('piercings')}
         >
           Piercings
+        </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'users' ? 'active' : ''}`}
+          onClick={() => setTab('users')}
+        >
+          User
         </button>
       </div>
 
@@ -969,6 +1089,98 @@ export default function AdminApp() {
                 </li>
               ))}
               {piercingRows.length === 0 && <li className="admin-empty">Noch keine Preise geladen.</li>}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {tab === 'users' && (
+        <section className="admin-section">
+          {customerEditingId && (
+            <div className="admin-card">
+              <h3 className="admin-h3">User bearbeiten</h3>
+              <p className="admin-lead cormorant">
+                Bearbeitet werden die Profilfelder in Firestore. Die Firebase-Auth-Zugangsdaten selbst bleiben unverändert.
+              </p>
+              <form className="admin-form" onSubmit={submitCustomer}>
+                <div className="admin-row">
+                  <div className="field admin-field-inline">
+                    <label>Vorname</label>
+                    <input
+                      type="text"
+                      value={customerFirstName}
+                      onChange={(e) => setCustomerFirstName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field admin-field-inline">
+                    <label>Nachname</label>
+                    <input
+                      type="text"
+                      value={customerLastName}
+                      onChange={(e) => setCustomerLastName(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="admin-row">
+                  <div className="field admin-field-inline">
+                    <label>E-Mail</label>
+                    <input
+                      type="email"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field admin-field-inline">
+                    <label>Telefon</label>
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="admin-form-actions">
+                  <button type="submit" className="btn-primary" disabled={busy}>
+                    User speichern
+                  </button>
+                  <button type="button" className="admin-btn-ghost" onClick={resetCustomerForm}>
+                    Abbrechen
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Registrierte User (users)</h3>
+            <p className="admin-help">
+              Diese Liste ist nur im Admin-Portal sichtbar und wird live aus <code>users</code> geladen.
+              Das Website-Repo sollte pro Registrierung ein Dokument unter <code>users/&lbrace;uid&rbrace;</code> anlegen.
+            </p>
+            <ul className="admin-doc-list">
+              {customerRows.map((row) => (
+                <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                  <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadCustomerForEdit(row)}>
+                    <div className="admin-doc-main-text">
+                      <div className="admin-doc-title">{userFullName(row)}</div>
+                      <div className="admin-doc-meta admin-user-meta">
+                        <span>{row.email || 'Keine E-Mail'}</span>
+                        <span>{userPhone(row) || 'Keine Telefonnummer'}</span>
+                      </div>
+                      <code className="admin-doc-id">{row.id}</code>
+                    </div>
+                  </button>
+                  <div className="admin-doc-actions">
+                    <button type="button" className="gal-chip" onClick={() => loadCustomerForEdit(row)}>
+                      Bearbeiten
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {customerRows.length === 0 && <li className="admin-empty">Noch keine User geladen.</li>}
             </ul>
           </div>
         </section>
