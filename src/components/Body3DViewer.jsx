@@ -265,6 +265,7 @@ function Scene({
   setOrbitEnabled,
   onMeshesReady,
   readOnly,
+  immersive,
 }) {
   return (
     <>
@@ -295,13 +296,28 @@ function Scene({
           texture={texture}
         />
       )}
+      {/* key: sauberes OrbitControls-Remount bei Canvas-Resize (Safari) */}
       <OrbitControls
+        key={immersive ? 'orbit-immersive' : 'orbit-inline'}
         makeDefault
-        enablePan={false}
-        minDistance={0.3}
-        maxDistance={8}
         target={[0, 0, 0]}
         enabled={readOnly || orbitEnabled}
+        {...(immersive
+          ? {
+              enablePan: true,
+              screenSpacePanning: true,
+              minDistance: 0.1,
+              maxDistance: 28,
+              minPolarAngle: 0.08,
+              maxPolarAngle: Math.PI - 0.08,
+              rotateSpeed: 0.85,
+              zoomSpeed: 1.15,
+            }
+          : {
+              enablePan: false,
+              minDistance: 0.3,
+              maxDistance: 8,
+            })}
       />
     </>
   );
@@ -328,6 +344,7 @@ export default function Body3DViewer({
   const [decalSize, setDecalSize] = useState(initialPlacement3d?.decalSize ?? 0.18);
   const [meshTick, setMeshTick] = useState(0);
   const [orbitEnabled, setOrbitEnabled] = useState(true);
+  const [immersiveOpen, setImmersiveOpen] = useState(false);
   const texRef = useRef(null);
   const sizeRef = useRef(decalSize);
   const meshListRef = useRef([]);
@@ -391,6 +408,25 @@ export default function Body3DViewer({
     };
   }, [tatSrc]);
 
+  const closeImmersive = useCallback(() => {
+    setOrbitEnabled(true);
+    setImmersiveOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!immersiveOpen) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeImmersive();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [closeImmersive, immersiveOpen]);
+
   const emitSerialized = useCallback(
     (nextDecal, g = gender, sizeFallback = sizeRef.current) => {
       if (!onPlacementChange) return;
@@ -440,9 +476,19 @@ export default function Body3DViewer({
   };
 
   const hasDecal = !!decal;
+  const showImmersiveChrome = tatSrc || !readOnly;
 
   return (
-    <div className="body3d-wrap">
+    <div className={`body3d-wrap${immersiveOpen ? ' body3d-wrap--immersive' : ''}`}>
+      {immersiveOpen && (
+        <div className="body3d-immersive-bar">
+          <span className="body3d-immersive-title">3D-Ansicht</span>
+          <button type="button" className="body3d-immersive-close" onClick={closeImmersive}>
+            Schließen
+          </button>
+        </div>
+      )}
+
       {!readOnly && (
         <div className="body3d-controls">
           <div className="body3d-toggle">
@@ -489,27 +535,52 @@ export default function Body3DViewer({
               × löschen
             </button>
           )}
+
+          {showImmersiveChrome && !immersiveOpen && (
+            <button type="button" className="body3d-expand" onClick={() => setImmersiveOpen(true)}>
+              Große Ansicht
+            </button>
+          )}
+        </div>
+      )}
+
+      {readOnly && showImmersiveChrome && !immersiveOpen && (
+        <div className="body3d-readonly-expand-row">
+          <button type="button" className="body3d-expand" onClick={() => setImmersiveOpen(true)}>
+            Große Ansicht
+          </button>
         </div>
       )}
 
       <p className="body3d-hint">
         {!readOnly && !tatSrc && 'Lade oder wähle ein Motiv — dann hier auf den Körper klicken'}
         {!readOnly && tatSrc && !hasDecal && 'Erster Klick auf den Körper setzt das Motiv · danach ziehen zum Verschieben'}
-        {!readOnly && tatSrc && hasDecal && (
+        {!readOnly && tatSrc && hasDecal && !immersiveOpen && (
           <>
             Auf der Haut ziehen = verschieben · <strong>Shift</strong> halten und ziehen (hoch/runter) = Größe · Ansicht drehen wie gewohnt (wenn nicht gerade gezogen wird)
+          </>
+        )}
+        {!readOnly && tatSrc && hasDecal && immersiveOpen && (
+          <>
+            Große Ansicht: <strong>Mausrad</strong> zoomen, ziehen zum Drehen, <strong>Rechtsklick</strong> (oder mittlere Taste) zum Verschieben der Kamera · Auf der Haut wie gewohnt ziehen / Shift+Ziehen für Größe ·{' '}
+            <kbd>Esc</kbd> schließt
           </>
         )}
         {readOnly && tatSrc && !hasDecal && initialPlacement3d && (
           <>Gespeicherte 3D-Platzierung fehlt — bitte im Admin neu platzieren und speichern.</>
         )}
-        {readOnly && tatSrc && hasDecal && (
+        {readOnly && tatSrc && hasDecal && !immersiveOpen && (
           <>Gespeicherte Platzierung auf dem Körper · Ansicht mit der Maus drehen.</>
+        )}
+        {readOnly && tatSrc && hasDecal && immersiveOpen && (
+          <>
+            Große Ansicht: <strong>Mausrad</strong> zoomen, ziehen zum Drehen, <strong>Rechtsklick</strong> zum Verschieben · <kbd>Esc</kbd> schließt
+          </>
         )}
       </p>
 
       <Canvas
-        className="body3d-canvas"
+        className={`body3d-canvas${immersiveOpen ? ' body3d-canvas--immersive' : ''}`}
         camera={{ position: [0, 0, 3.2], fov: 55, near: 0.01, far: 100 }}
         gl={{ antialias: true, alpha: true }}
         style={{
@@ -529,6 +600,7 @@ export default function Body3DViewer({
           setOrbitEnabled={setOrbitEnabled}
           onMeshesReady={onMeshesReady}
           readOnly={readOnly}
+          immersive={immersiveOpen}
         />
       </Canvas>
     </div>
