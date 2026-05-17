@@ -730,7 +730,9 @@ export default function AdminApp() {
     <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
       <header className="admin-top">
         <div className="admin-brand">
-          <span className="admin-brand-mark">K</span>
+          <span className="admin-brand-mark">
+            <img src="/og-image.png" alt="" />
+          </span>
           <span>
             KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span>
           </span>
