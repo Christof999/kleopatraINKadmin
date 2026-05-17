@@ -6,20 +6,28 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'info@soergel-design.de',
+          'info@kleopatra-ink.com'
+        ];
+    }
+
     // Öffentliche Leseregeln für die Website anpassen (z. B. nur lesen).
     match /gallery/{docId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /wannados/{docId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /piercingPrices/{docId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
   }
 }

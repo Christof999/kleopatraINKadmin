@@ -21,11 +21,22 @@ import './admin.css';
 
 const Body3DViewer = lazy(() => import('../components/Body3DViewer'));
 
+const ADMIN_EMAILS = new Set(['info@soergel-design.de', 'info@kleopatra-ink.com']);
 const CAMERA_PATTERN = /^(img|dsc|dscn|p\d|mgim|mvim)[-_]?\d/i;
 const EUR_FORMATTER = new Intl.NumberFormat('de-DE', {
   style: 'currency',
   currency: 'EUR',
 });
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.has(String(email || '').trim().toLowerCase());
+}
+
+function adminAccessMessage(email) {
+  return email
+    ? `Dieses Konto (${email}) ist nicht für das Admin-Portal freigeschaltet.`
+    : 'Dieses Konto ist nicht für das Admin-Portal freigeschaltet.';
+}
 
 function parsePriceInput(value) {
   const normalized = String(value).trim().replace(/\./g, '').replace(',', '.');
@@ -144,7 +155,26 @@ export default function AdminApp() {
 
   useEffect(() => {
     if (!auth) return undefined;
-    return onAuthStateChanged(auth, setUser);
+    return onAuthStateChanged(auth, async (nextUser) => {
+      if (!nextUser) {
+        setUser(null);
+        return;
+      }
+
+      if (isAdminEmail(nextUser.email)) {
+        setAuthError('');
+        setUser(nextUser);
+        return;
+      }
+
+      setUser(null);
+      setAuthError(adminAccessMessage(nextUser.email));
+      try {
+        await signOut(auth);
+      } catch {
+        /* Auth-State wird beim nächsten Wechsel erneut geprüft. */
+      }
+    });
   }, [auth]);
 
   const loadLists = useCallback(async () => {
@@ -203,7 +233,13 @@ export default function AdminApp() {
     setAuthError('');
     setBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+      const credential = await signInWithEmailAndPassword(auth, authEmail.trim().toLowerCase(), authPassword);
+      if (!isAdminEmail(credential.user.email)) {
+        await signOut(auth);
+        setUser(null);
+        setAuthError(adminAccessMessage(credential.user.email));
+        return;
+      }
       setAuthPassword('');
     } catch (err) {
       setAuthError(err.message || String(err));
