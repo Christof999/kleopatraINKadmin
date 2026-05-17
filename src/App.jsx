@@ -8,8 +8,10 @@ const Body3DViewer    = lazy(() => import('./components/Body3DViewer'));
 import { useTweaks, TweaksPanel, TweakSection, TweakSlider, TweakRadio } from './components/TweaksPanel';
 import { GAL_ITEMS, GAL_FILTERS } from './gallery-items';
 import { getFirebaseConfig } from './firebase/client';
+import { fetchGalleryFromFirestore } from './galleryFirebase';
 import { fetchWannadosFromFirestore } from './wannadosFirebase';
 import { WANNADO_ITEMS } from './wannado-items';
+import brandLogoUrl from '../IMG_0708.jpeg';
 import './styles.css';
 
 const NAV = [
@@ -46,10 +48,13 @@ function Landing({ onNav, tweaks }) {
   return (
     <div className="stage">
       <Background mode={tweaks.bgMode} goldIntensity={tweaks.gold} />
+      <img className="site-logo-ghost" src={brandLogoUrl} alt="" aria-hidden="true" />
 
       <div className="chrome">
         <div className="brand">
-          <div className="brand-mark">K</div>
+          <div className="brand-mark">
+            <img src={brandLogoUrl} alt="" />
+          </div>
           <div>KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span></div>
         </div>
         <div className="chrome-meta">
@@ -170,14 +175,41 @@ function PageHead({ kicker, title, titleEm, meta, onBack }) {
 
 function Gallery({ onBack }) {
   const [filter, setFilter] = useState('Alle');
-  const items = filter === 'Alle' ? GAL_ITEMS : GAL_ITEMS.filter((i) => i.style === filter);
+  const [galleryItems, setGalleryItems] = useState(GAL_ITEMS);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState('');
+  const items = filter === 'Alle' ? galleryItems : galleryItems.filter((i) => i.style === filter);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!getFirebaseConfig()) return undefined;
+
+    setGalleryLoading(true);
+    setGalleryError('');
+    fetchGalleryFromFirestore()
+      .then((rows) => {
+        if (cancelled) return;
+        setGalleryItems(Array.isArray(rows) && rows.length > 0 ? [...rows, ...GAL_ITEMS] : GAL_ITEMS);
+      })
+      .catch((e) => {
+        if (!cancelled) setGalleryError(e.message || String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setGalleryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="page with-bg">
       <PageHead
         kicker="Portfolio · Kleopatra INK"
         title="Werke &" titleEm="Wunden"
         meta={<>
-          <b>{GAL_ITEMS.length > 0 ? `${GAL_ITEMS.length} Arbeiten` : 'Demnächst'}</b>
+          <b>{galleryItems.length > 0 ? `${galleryItems.length} Arbeiten` : 'Demnächst'}</b>
           <div>2018 — 2026</div>
         </>}
         onBack={onBack}
@@ -189,6 +221,16 @@ function Gallery({ onBack }) {
             onClick={() => setFilter(f)}>{f}</button>
         ))}
       </div>
+      {galleryLoading && (
+        <p className="gal-empty" style={{ paddingBottom: 12 }}>
+          Galerie wird geladen …
+        </p>
+      )}
+      {galleryError && (
+        <p className="gal-empty" style={{ color: 'var(--muted)', paddingBottom: 12 }}>
+          Konnte Firebase-Galerie nicht laden ({galleryError}). Lokale Bilder werden angezeigt.
+        </p>
+      )}
       {items.length === 0 ? (
         <p className="gal-empty">
           {filter === 'Alle' ? 'Bilder folgen bald.' : `Noch keine ${filter}-Arbeiten vorhanden.`}
@@ -196,7 +238,7 @@ function Gallery({ onBack }) {
       ) : (
         <div className="gal-grid">
           {items.map((it, i) => (
-            <div key={i} className="gal-item">
+            <div key={it.id ?? `${it.src}-${i}`} className="gal-item">
               <img className="gal-img" src={it.src} alt={it.piece || it.style} loading="lazy" />
               {(it.piece || it.style) && (
                 <div className="gal-caption">
