@@ -689,8 +689,8 @@ export default function AdminApp() {
           titleEm="Login"
           meta={
             <>
-              <b>Firestore</b>
-              <div>gallery · wannados · piercings · users</div>
+              <b>Geschützter Bereich</b>
+              <div>Nur für freigeschaltete Admins</div>
             </>
           }
         />
@@ -803,8 +803,8 @@ export default function AdminApp() {
           <div className="admin-card">
             <h3 className="admin-h3">Neue Galerie-Bilder</h3>
           <p className="admin-lead cormorant">
-            Schema: <code>src</code>, <code>style</code>, optional <code>piece</code>, optional <code>createdAt</code> (Server).
-            Mehrere Dateien wählen — Upload-Fortschritt siehst du unten.
+            Wähle ein oder mehrere fertige Tattoo-Fotos aus, ordne sie einem Stil zu und speichere sie.
+            Ein Anzeigename ist optional und kann leer bleiben.
           </p>
           <form className="admin-form" onSubmit={submitGallery}>
             <div className="field">
@@ -822,7 +822,7 @@ export default function AdminApp() {
               </div>
             )}
             <div className="field">
-              <label>Stil (style)</label>
+              <label>Tattoo-Stil</label>
               <select value={galStyle} onChange={(e) => setGalStyle(e.target.value)}>
                 {TATTOO_STYLES.map((s) => (
                   <option key={s} value={s}>
@@ -833,7 +833,7 @@ export default function AdminApp() {
             </div>
             <div className="field">
               <label>
-                Anzeigename (piece) <span style={{ opacity: 0.5 }}>optional</span>
+                Anzeigename <span style={{ opacity: 0.5 }}>optional</span>
               </label>
               <input
                 type="text"
@@ -857,7 +857,7 @@ export default function AdminApp() {
           </div>
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Zuletzt in Firestore (gallery)</h3>
+            <h3 className="admin-h3">Zuletzt gespeicherte Galerie-Bilder</h3>
             <ul className="admin-doc-list">
               {galleryRows.map((row) => (
               <li key={row.id} className="admin-doc-item">
@@ -880,9 +880,9 @@ export default function AdminApp() {
           <div className="admin-card">
             <h3 className="admin-h3">{wdEditingId ? 'Wanna-do bearbeiten' : 'Neues Wanna-do'}</h3>
           <p className="admin-lead cormorant">
-            Pflichtfelder wie auf der Hauptseite: <code>src</code>, <code>title</code>, <code>style</code>,{' '}
-            <code>placement</code>, <code>target</code>. Optional: <code>desc</code>, <code>available</code>,{' '}
-            <code>order</code>. Zusätzlich: <code>placement3d</code>, wenn du im Viewer klickst.
+            Lade ein Motiv hoch, gib Titel, Stil und Körperstelle an und lege fest, ob es für Frauen,
+            Männer oder alle angezeigt werden soll. Optional kannst du eine kurze Beschreibung,
+            Sortierung und eine 3D-Platzierung ergänzen.
           </p>
           <form className="admin-form" onSubmit={submitWannado}>
             <div className="field">
@@ -925,7 +925,7 @@ export default function AdminApp() {
               </datalist>
             </div>
             <div className="field">
-              <label>Zielgruppe (target)</label>
+              <label>Für wen soll es angezeigt werden?</label>
               <select value={wdTarget} onChange={(e) => setWdTarget(e.target.value)}>
                 {WANNADO_TARGETS.map((t) => (
                   <option key={t} value={t}>
@@ -935,16 +935,16 @@ export default function AdminApp() {
               </select>
             </div>
             <div className="field">
-              <label>Beschreibung (desc) · optional</label>
+              <label>Beschreibung optional</label>
               <textarea rows={3} value={wdDesc} onChange={(e) => setWdDesc(e.target.value)} placeholder="Kurzbeschreibung" />
             </div>
             <div className="admin-row">
               <label className="admin-check">
                 <input type="checkbox" checked={wdAvailable} onChange={(e) => setWdAvailable(e.target.checked)} />
-                <span>verfügbar (available)</span>
+                <span>verfügbar</span>
               </label>
               <div className="field admin-field-inline">
-                <label>Sortierung (order) · optional</label>
+                <label>Reihenfolge optional</label>
                 <input type="number" value={wdOrder} onChange={(e) => setWdOrder(e.target.value)} placeholder="z. B. 10" />
               </div>
             </div>
@@ -953,7 +953,7 @@ export default function AdminApp() {
               <div className="wd-3d-header">
                 <h3 className="wd-3d-title">3D-Vorschau & Platzierung</h3>
                 <p className="wd-3d-sub">
-                  Nach Bildwahl: Motiv auf dem Körper platzieren — wird als <code>placement3d</code> mitgespeichert (optional).
+                  Optional: Klicke auf den Körper, um das Motiv als Vorschau an der passenden Stelle zu platzieren.
                 </p>
               </div>
               <Suspense fallback={<div className="body3d-loading">3D wird geladen …</div>}>
@@ -983,7 +983,7 @@ export default function AdminApp() {
           </div>
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Einträge in Firestore (wannados)</h3>
+            <h3 className="admin-h3">Gespeicherte Wanna-dos</h3>
             <ul className="admin-doc-list">
               {wannadoRows.map((row) => (
               <li key={row.id} className="admin-doc-item admin-doc-item-row">
@@ -1018,8 +1018,8 @@ export default function AdminApp() {
           <div className="admin-card">
             <h3 className="admin-h3">{piercingEditingId ? 'Piercing-Preis bearbeiten' : 'Neuer Piercing-Preis'}</h3>
             <p className="admin-lead cormorant">
-              Pflege hier die öffentliche Preisliste: <code>title</code>, optional <code>desc</code> und{' '}
-              <code>price</code>. Eine Unterscheidung nach Frau/Mann gibt es hier nicht.
+              Trage hier ein Piercing mit Preis ein. Die Beschreibung ist freiwillig und kann zum Beispiel
+              Hinweise wie „inklusive Erstschmuck“ enthalten.
             </p>
             <form className="admin-form" onSubmit={submitPiercing}>
               <div className="field">
@@ -1066,7 +1066,7 @@ export default function AdminApp() {
           </div>
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Einträge in Firestore (piercingPrices)</h3>
+            <h3 className="admin-h3">Gespeicherte Piercing-Preise</h3>
             <ul className="admin-doc-list">
               {piercingRows.map((row) => (
                 <li key={row.id} className="admin-doc-item admin-doc-item-row">
@@ -1102,7 +1102,7 @@ export default function AdminApp() {
             <div className="admin-card">
               <h3 className="admin-h3">User bearbeiten</h3>
               <p className="admin-lead cormorant">
-                Bearbeitet werden die Profilfelder in Firestore. Die Firebase-Auth-Zugangsdaten selbst bleiben unverändert.
+                Ändere hier die gespeicherten Kontaktdaten des Kunden. Das Passwort bleibt dabei unverändert.
               </p>
               <form className="admin-form" onSubmit={submitCustomer}>
                 <div className="admin-row">
@@ -1157,10 +1157,10 @@ export default function AdminApp() {
           )}
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Registrierte User (users)</h3>
+            <h3 className="admin-h3">Registrierte Kunden</h3>
             <p className="admin-help">
-              Diese Liste ist nur im Admin-Portal sichtbar und wird live aus <code>users</code> geladen.
-              Das Website-Repo sollte pro Registrierung ein Dokument unter <code>users/&lbrace;uid&rbrace;</code> anlegen.
+              Hier siehst du alle Kunden, die sich auf der Website registriert haben.
+              Klicke auf einen Eintrag, um Name, E-Mail-Adresse oder Telefonnummer zu bearbeiten.
             </p>
             <ul className="admin-doc-list">
               {customerRows.map((row) => (
