@@ -29,6 +29,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /wheelConfig/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     match /users/{uid} {
       allow create: if isSignedIn() && request.auth.uid == uid;
       allow read, update: if isSignedIn() && request.auth.uid == uid;

@@ -8,6 +8,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   deleteDoc,
 } from 'firebase/firestore';
@@ -15,11 +16,51 @@ import { ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } 
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
+import LuckyWheel, { formatSegment, segmentColor } from '../components/LuckyWheel';
 import { getDb, getBucket, getFirebaseAuth, getFirebaseConfig } from './firebase';
 import '../styles.css';
 import './admin.css';
 
 const Body3DViewer = lazy(() => import('../components/Body3DViewer'));
+
+const WHEEL_CONFIG_DOC = 'main';
+const WHEEL_TYPES = [
+  { value: 'amount', label: 'Betrag (€)' },
+  { value: 'percent', label: 'Prozent (%)' },
+  { value: 'text', label: 'Freitext' },
+];
+
+function newSegmentId() {
+  return `seg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeBlankSegment() {
+  return { id: newSegmentId(), type: 'amount', label: '', value: '', color: '' };
+}
+
+function normalizeSegmentForSave(seg) {
+  const type = WHEEL_TYPES.some((t) => t.value === seg.type) ? seg.type : 'text';
+  const out = { id: seg.id || newSegmentId(), type, label: (seg.label || '').trim() };
+  if (type === 'amount' || type === 'percent') {
+    const raw = String(seg.value ?? '').trim().replace(/\./g, '').replace(',', '.');
+    const num = Number(raw);
+    out.value = Number.isFinite(num) ? num : 0;
+  }
+  if (seg.color && seg.color.trim()) out.color = seg.color.trim();
+  return out;
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  let date;
+  if (typeof value?.toDate === 'function') date = value.toDate();
+  else if (value instanceof Date) date = value;
+  else if (typeof value === 'number') date = new Date(value);
+  else if (typeof value === 'string') date = new Date(value);
+  else return '—';
+  if (!date || Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+}
 
 const ADMIN_EMAILS = new Set(['info@soergel-design.de', 'info@kleopatra-ink.com']);
 const CAMERA_PATTERN = /^(img|dsc|dscn|p\d|mgim|mvim)[-_]?\d/i;
@@ -176,6 +217,11 @@ export default function AdminApp() {
   const [wannadoRows, setWannadoRows] = useState([]);
   const [piercingRows, setPiercingRows] = useState([]);
   const [customerRows, setCustomerRows] = useState([]);
+  const [wheelSegments, setWheelSegments] = useState([]);
+  const [wheelActive, setWheelActive] = useState(true);
+  const [wheelDirty, setWheelDirty] = useState(false);
+  const [wheelLoaded, setWheelLoaded] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState(null);
   const placement3dRef = useRef(null);
 
   useEffect(() => {
@@ -247,6 +293,39 @@ export default function AdminApp() {
             .split(' · ')
             .filter((part) => part && !part.startsWith('Piercings:'));
           return [...otherParts, `Piercings: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
+
+  useEffect(() => {
+    if (!db || !user) {
+      setWheelSegments([]);
+      setWheelActive(true);
+      setWheelLoaded(false);
+      return undefined;
+    }
+    return onSnapshot(
+      doc(db, 'wheelConfig', WHEEL_CONFIG_DOC),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() || {};
+          setWheelSegments(Array.isArray(data.segments) ? data.segments : []);
+          setWheelActive(data.active !== false);
+        } else {
+          setWheelSegments([]);
+          setWheelActive(true);
+        }
+        setWheelLoaded(true);
+        setWheelDirty(false);
+      },
+      (e) => {
+        setWheelLoaded(true);
+        setListError((current) => {
+          const otherParts = current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('Glücksrad:'));
+          return [...otherParts, `Glücksrad: ${e.message || String(e)}`].join(' · ');
         });
       },
     );
@@ -664,6 +743,125 @@ export default function AdminApp() {
     }
   };
 
+  const updateWheelSegment = (id, patch) => {
+    setWheelSegments((segs) => segs.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setWheelDirty(true);
+  };
+
+  const removeWheelSegment = (id) => {
+    setWheelSegments((segs) => segs.filter((s) => s.id !== id));
+    setWheelDirty(true);
+  };
+
+  const addWheelSegment = () => {
+    setWheelSegments((segs) => [...segs, makeBlankSegment()]);
+    setWheelDirty(true);
+  };
+
+  const moveWheelSegment = (id, delta) => {
+    setWheelSegments((segs) => {
+      const idx = segs.findIndex((s) => s.id === id);
+      if (idx === -1) return segs;
+      const next = idx + delta;
+      if (next < 0 || next >= segs.length) return segs;
+      const copy = [...segs];
+      const [item] = copy.splice(idx, 1);
+      copy.splice(next, 0, item);
+      return copy;
+    });
+    setWheelDirty(true);
+  };
+
+  const toggleWheelActive = (next) => {
+    setWheelActive(next);
+    setWheelDirty(true);
+  };
+
+  const saveWheelConfig = async () => {
+    if (!db || !user) return;
+    const cleaned = wheelSegments.map(normalizeSegmentForSave);
+    if (cleaned.length === 0) {
+      setStatus('Glücksrad: Bitte mindestens ein Segment hinzufügen.');
+      return;
+    }
+    const invalid = cleaned.find((s) => {
+      if (s.type === 'text') return !s.label;
+      return !Number.isFinite(s.value) || s.value < 0;
+    });
+    if (invalid) {
+      setStatus('Glücksrad: Bitte alle Segmente vollständig ausfüllen (Beschriftung bzw. Wert).');
+      return;
+    }
+    setBusy(true);
+    setStatus('');
+    try {
+      await setDoc(
+        doc(db, 'wheelConfig', WHEEL_CONFIG_DOC),
+        {
+          segments: cleaned,
+          active: wheelActive,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      setWheelSegments(cleaned);
+      setWheelDirty(false);
+      setStatus('Glücksrad-Konfiguration gespeichert.');
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleUserSpinAvailable = async (row, next) => {
+    if (!db || !user) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      await updateDoc(doc(db, 'users', row.id), {
+        wheelSpinAvailable: next,
+        wheelUpdatedAt: serverTimestamp(),
+      });
+      setStatus(
+        next
+          ? `Glücksrad für ${userFullName(row)} freigeschaltet. Beim nächsten Login kann erneut gedreht werden.`
+          : `Glücksrad für ${userFullName(row)} gesperrt.`,
+      );
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setSpinRedeemed = async (row, spinId, redeemed) => {
+    if (!db || !user) return;
+    const history = Array.isArray(row.wheelSpinHistory) ? row.wheelSpinHistory : [];
+    const nextHistory = history.map((entry) =>
+      entry.id === spinId
+        ? {
+            ...entry,
+            redeemed,
+            redeemedAt: redeemed ? new Date().toISOString() : null,
+          }
+        : entry,
+    );
+    setBusy(true);
+    setStatus('');
+    try {
+      await updateDoc(doc(db, 'users', row.id), {
+        wheelSpinHistory: nextHistory,
+        wheelUpdatedAt: serverTimestamp(),
+      });
+      setStatus(redeemed ? 'Gewinn als eingelöst markiert.' : 'Gewinn auf „nicht eingelöst" zurückgesetzt.');
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!cfg) {
     return (
       <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
@@ -795,6 +993,13 @@ export default function AdminApp() {
           onClick={() => setTab('users')}
         >
           User
+        </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'wheel' ? 'active' : ''}`}
+          onClick={() => setTab('wheel')}
+        >
+          Glücksrad
         </button>
       </div>
 
@@ -1161,29 +1366,260 @@ export default function AdminApp() {
             <p className="admin-help">
               Hier siehst du alle Kunden, die sich auf der Website registriert haben.
               Klicke auf einen Eintrag, um Name, E-Mail-Adresse oder Telefonnummer zu bearbeiten.
+              Über „Glücksrad anzeigen" siehst du den Spin-Status und kannst den nächsten Dreh freigeben.
             </p>
             <ul className="admin-doc-list">
-              {customerRows.map((row) => (
-                <li key={row.id} className="admin-doc-item admin-doc-item-row">
-                  <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadCustomerForEdit(row)}>
-                    <div className="admin-doc-main-text">
-                      <div className="admin-doc-title">{userFullName(row)}</div>
-                      <div className="admin-doc-meta admin-user-meta">
-                        <span>{row.email || 'Keine E-Mail'}</span>
-                        <span>{userPhone(row) || 'Keine Telefonnummer'}</span>
+              {customerRows.map((row) => {
+                const history = Array.isArray(row.wheelSpinHistory) ? row.wheelSpinHistory : [];
+                const latestSpin = history.length > 0 ? history[history.length - 1] : null;
+                const canSpin = row.wheelSpinAvailable !== false;
+                const pillLabel = canSpin
+                  ? history.length === 0
+                    ? 'Bereit für ersten Dreh'
+                    : 'Erneuter Dreh freigegeben'
+                  : 'Bereits gedreht';
+                const expanded = expandedUserId === row.id;
+                return (
+                  <li key={row.id} className="admin-doc-item admin-user-card">
+                    <div className="admin-doc-item-row admin-user-row">
+                      <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadCustomerForEdit(row)}>
+                        <div className="admin-doc-main-text">
+                          <div className="admin-doc-title">{userFullName(row)}</div>
+                          <div className="admin-doc-meta admin-user-meta">
+                            <span>{row.email || 'Keine E-Mail'}</span>
+                            <span>{userPhone(row) || 'Keine Telefonnummer'}</span>
+                          </div>
+                          <div className="admin-user-wheel-meta">
+                            <span className={`admin-wheel-pill ${canSpin ? 'is-on' : 'is-off'}`}>
+                              {pillLabel}
+                            </span>
+                            {latestSpin && (
+                              <span className="admin-wheel-pill admin-wheel-pill-result">
+                                Letzter Gewinn: {formatSegment(latestSpin)}
+                                {latestSpin.redeemed ? ' · eingelöst' : ' · offen'}
+                              </span>
+                            )}
+                            <span className="admin-wheel-pill admin-wheel-pill-muted">
+                              {history.length} Dreh{history.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <code className="admin-doc-id">{row.id}</code>
+                        </div>
+                      </button>
+                      <div className="admin-doc-actions">
+                        <button type="button" className="gal-chip" onClick={() => loadCustomerForEdit(row)}>
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          className="gal-chip"
+                          onClick={() => setExpandedUserId(expanded ? null : row.id)}
+                        >
+                          {expanded ? 'Glücksrad ausblenden' : 'Glücksrad anzeigen'}
+                        </button>
                       </div>
-                      <code className="admin-doc-id">{row.id}</code>
                     </div>
-                  </button>
-                  <div className="admin-doc-actions">
-                    <button type="button" className="gal-chip" onClick={() => loadCustomerForEdit(row)}>
-                      Bearbeiten
-                    </button>
-                  </div>
-                </li>
-              ))}
+
+                    {expanded && (
+                      <div className="admin-user-wheel-panel">
+                        <div className="admin-user-wheel-controls">
+                          <label className="admin-check">
+                            <input
+                              type="checkbox"
+                              checked={canSpin}
+                              onChange={(e) => toggleUserSpinAvailable(row, e.target.checked)}
+                              disabled={busy}
+                            />
+                            <span>Beim nächsten Login darf dieser User (erneut) drehen</span>
+                          </label>
+                          <p className="admin-user-wheel-hint">
+                            Haken aktiv = Nutzer sieht das Glücksrad und kann einmal drehen. Nach dem Dreh wird der Haken automatisch entfernt.
+                          </p>
+                        </div>
+
+                        <div className="admin-user-wheel-history">
+                          <h4 className="admin-user-wheel-h4">Historie</h4>
+                          {history.length === 0 ? (
+                            <p className="admin-user-wheel-empty">Dieser User hat noch nicht gedreht.</p>
+                          ) : (
+                            <ul className="admin-user-wheel-list">
+                              {history
+                                .slice()
+                                .reverse()
+                                .map((entry) => (
+                                  <li key={entry.id || entry.spunAt} className="admin-user-wheel-entry">
+                                    <div className="admin-user-wheel-entry-main">
+                                      <div className="admin-user-wheel-entry-prize">
+                                        {formatSegment(entry)}
+                                      </div>
+                                      <div className="admin-user-wheel-entry-meta">
+                                        <span>{formatDateTime(entry.spunAt)}</span>
+                                        {entry.label && entry.type !== 'text' && (
+                                          <span>· {entry.label}</span>
+                                        )}
+                                        <span className={`admin-wheel-pill ${entry.redeemed ? 'is-on' : 'is-warn'}`}>
+                                          {entry.redeemed ? 'Eingelöst' : 'Offen'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="admin-user-wheel-entry-actions">
+                                      <button
+                                        type="button"
+                                        className="gal-chip"
+                                        onClick={() => setSpinRedeemed(row, entry.id, !entry.redeemed)}
+                                        disabled={busy}
+                                      >
+                                        {entry.redeemed ? 'Als offen markieren' : 'Als eingelöst markieren'}
+                                      </button>
+                                    </div>
+                                  </li>
+                                ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
               {customerRows.length === 0 && <li className="admin-empty">Noch keine User geladen.</li>}
             </ul>
+          </div>
+        </section>
+      )}
+
+      {tab === 'wheel' && (
+        <section className="admin-section">
+          <div className="admin-card">
+            <h3 className="admin-h3">Glücksrad konfigurieren</h3>
+            <p className="admin-lead cormorant">
+              Lege fest, welche Felder auf dem Glücksrad zu sehen sind. Jedes Segment kann ein
+              Geldbetrag, ein Prozent-Rabatt oder ein freier Text sein. Reihenfolge und Farben lassen sich
+              individuell anpassen. Speichere die Konfiguration, bevor du das Rad live schaltest.
+            </p>
+
+            <label className="admin-check" style={{ marginBottom: 20 }}>
+              <input
+                type="checkbox"
+                checked={wheelActive}
+                onChange={(e) => toggleWheelActive(e.target.checked)}
+              />
+              <span>Glücksrad ist auf der Website aktiv</span>
+            </label>
+
+            <div className="admin-wheel-grid">
+              <div className="admin-wheel-segments">
+                {wheelSegments.length === 0 && (
+                  <p className="admin-user-wheel-empty">
+                    Noch keine Segmente. Füge unten das erste Feld hinzu.
+                  </p>
+                )}
+                {wheelSegments.map((seg, idx) => (
+                  <div key={seg.id} className="admin-wheel-segment">
+                    <div className="admin-wheel-segment-head">
+                      <span
+                        className="admin-wheel-color-dot"
+                        style={{ background: segmentColor(seg, idx) }}
+                      />
+                      <span className="admin-wheel-segment-idx">Feld {idx + 1}</span>
+                      <div className="admin-wheel-segment-head-actions">
+                        <button type="button" className="gal-chip" onClick={() => moveWheelSegment(seg.id, -1)} disabled={idx === 0}>
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="gal-chip"
+                          onClick={() => moveWheelSegment(seg.id, 1)}
+                          disabled={idx === wheelSegments.length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="gal-chip admin-doc-delete"
+                          onClick={() => removeWheelSegment(seg.id)}
+                        >
+                          Entfernen
+                        </button>
+                      </div>
+                    </div>
+                    <div className="admin-row admin-wheel-segment-row">
+                      <div className="field admin-field-inline">
+                        <label>Typ</label>
+                        <select
+                          value={seg.type || 'amount'}
+                          onChange={(e) => updateWheelSegment(seg.id, { type: e.target.value })}
+                        >
+                          {WHEEL_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {(seg.type === 'amount' || seg.type === 'percent') && (
+                        <div className="field admin-field-inline">
+                          <label>Wert {seg.type === 'amount' ? '(€)' : '(%)'}</label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={seg.value ?? ''}
+                            onChange={(e) => updateWheelSegment(seg.id, { value: e.target.value })}
+                            placeholder={seg.type === 'amount' ? 'z. B. 50' : 'z. B. 10'}
+                          />
+                        </div>
+                      )}
+                      <div className="field admin-field-inline">
+                        <label>Beschriftung {seg.type === 'text' ? '' : '(optional)'}</label>
+                        <input
+                          type="text"
+                          value={seg.label || ''}
+                          onChange={(e) => updateWheelSegment(seg.id, { label: e.target.value })}
+                          placeholder={
+                            seg.type === 'text' ? 'z. B. Gratis Beratung' : 'z. B. 50€ Gutschein'
+                          }
+                        />
+                      </div>
+                      <div className="field admin-field-inline admin-wheel-color-field">
+                        <label>Farbe</label>
+                        <input
+                          type="color"
+                          value={seg.color || segmentColor(seg, idx)}
+                          onChange={(e) => updateWheelSegment(seg.id, { color: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="admin-form-actions">
+                  <button type="button" className="admin-btn-ghost" onClick={addWheelSegment}>
+                    + Segment hinzufügen
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={saveWheelConfig}
+                    disabled={busy || !wheelDirty}
+                  >
+                    {wheelDirty ? 'Konfiguration speichern' : 'Gespeichert'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="admin-wheel-preview">
+                <h4 className="admin-user-wheel-h4">Vorschau</h4>
+                <p className="admin-wheel-preview-hint">
+                  So sehen deine User das Rad. Drücke „Drehen" um einen Beispieldreh zu testen.
+                </p>
+                {wheelLoaded && (
+                  <LuckyWheel
+                    segments={wheelSegments.map(normalizeSegmentForSave)}
+                    buttonLabel="Test-Dreh"
+                    size={320}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         </section>
       )}
