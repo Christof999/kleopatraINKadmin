@@ -5,6 +5,7 @@ import {
   doc,
   getDocs,
   limit,
+  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -35,6 +36,10 @@ function parsePriceInput(value) {
 function formatPrice(value) {
   const price = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(price) ? EUR_FORMATTER.format(price) : '—';
+}
+
+function sortPiercingRows(rows) {
+  return [...rows].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 }
 
 function pieceFromFilename(filename) {
@@ -159,15 +164,6 @@ export default function AdminApp() {
       parts.push(`Wanna-dos: ${e.message || String(e)}`);
       setWannadoRows([]);
     }
-    try {
-      const pSnap = await getDocs(query(collection(db, 'piercingPrices'), limit(200)));
-      const rows = pSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      setPiercingRows(rows);
-    } catch (e) {
-      parts.push(`Piercings: ${e.message || String(e)}`);
-      setPiercingRows([]);
-    }
     if (parts.length) setListError(parts.join(' · '));
     else setListError('');
   }, [db, user]);
@@ -175,6 +171,31 @@ export default function AdminApp() {
   useEffect(() => {
     loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    if (!db || !user) {
+      setPiercingRows([]);
+      return undefined;
+    }
+
+    const piercingQuery = query(collection(db, 'piercingPrices'), limit(200));
+    return onSnapshot(
+      piercingQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setPiercingRows(sortPiercingRows(rows));
+      },
+      (e) => {
+        setPiercingRows([]);
+        setListError((current) => {
+          const otherParts = current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('Piercings:'));
+          return [...otherParts, `Piercings: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
 
   const onLogin = async (e) => {
     e.preventDefault();
@@ -470,7 +491,6 @@ export default function AdminApp() {
       }
 
       resetPiercingForm();
-      loadLists();
     } catch (err) {
       setStatus(err.message || String(err));
     } finally {
@@ -488,7 +508,6 @@ export default function AdminApp() {
       await deleteDoc(doc(db, 'piercingPrices', row.id));
       if (piercingEditingId === row.id) resetPiercingForm();
       setStatus('Piercing-Preis gelöscht.');
-      loadLists();
     } catch (err) {
       setStatus(err.message || String(err));
     } finally {
