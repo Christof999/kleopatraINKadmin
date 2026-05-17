@@ -378,6 +378,10 @@
   max-width: 160px;
 }
 
+.admin-field-price input {
+  max-width: 220px;
+}
+
 .admin-form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -462,6 +466,10 @@
   min-width: 0;
 }
 
+.admin-doc-main-no-thumb {
+  padding: 2px 0;
+}
+
 .admin-doc-actions {
   display: flex;
   flex-direction: row;
@@ -502,6 +510,12 @@
   color: var(--ivory-dim);
   margin-top: 4px;
   line-height: 1.35;
+}
+
+.admin-price-highlight {
+  color: var(--gold-bright);
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.08em;
 }
 
 .admin-doc-id {

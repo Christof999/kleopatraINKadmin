@@ -21,6 +21,21 @@ import './admin.css';
 const Body3DViewer = lazy(() => import('../components/Body3DViewer'));
 
 const CAMERA_PATTERN = /^(img|dsc|dscn|p\d|mgim|mvim)[-_]?\d/i;
+const EUR_FORMATTER = new Intl.NumberFormat('de-DE', {
+  style: 'currency',
+  currency: 'EUR',
+});
+
+function parsePriceInput(value) {
+  const normalized = String(value).trim().replace(/\./g, '').replace(',', '.');
+  const price = Number(normalized);
+  return Number.isFinite(price) ? price : null;
+}
+
+function formatPrice(value) {
+  const price = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(price) ? EUR_FORMATTER.format(price) : '—';
+}
 
 function pieceFromFilename(filename) {
   const base = filename.replace(/\.[^.]+$/, '');
@@ -113,8 +128,13 @@ export default function AdminApp() {
   const [wdEditingId, setWdEditingId] = useState(null);
   const [wdRemoteSrc, setWdRemoteSrc] = useState(null);
   const [wdPlacementInitial, setWdPlacementInitial] = useState(null);
+  const [piercingTitle, setPiercingTitle] = useState('');
+  const [piercingDesc, setPiercingDesc] = useState('');
+  const [piercingPrice, setPiercingPrice] = useState('');
+  const [piercingEditingId, setPiercingEditingId] = useState(null);
   const [galleryRows, setGalleryRows] = useState([]);
   const [wannadoRows, setWannadoRows] = useState([]);
+  const [piercingRows, setPiercingRows] = useState([]);
   const placement3dRef = useRef(null);
 
   useEffect(() => {
@@ -138,6 +158,15 @@ export default function AdminApp() {
     } catch (e) {
       parts.push(`Wanna-dos: ${e.message || String(e)}`);
       setWannadoRows([]);
+    }
+    try {
+      const pSnap = await getDocs(query(collection(db, 'piercingPrices'), limit(200)));
+      const rows = pSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      setPiercingRows(rows);
+    } catch (e) {
+      parts.push(`Piercings: ${e.message || String(e)}`);
+      setPiercingRows([]);
     }
     if (parts.length) setListError(parts.join(' · '));
     else setListError('');
@@ -219,6 +248,21 @@ export default function AdminApp() {
     placement3dRef.current = row.placement3d ?? null;
     setWdPlacementInitial(row.placement3d ?? null);
     setTab('wannados');
+  };
+
+  const resetPiercingForm = () => {
+    setPiercingEditingId(null);
+    setPiercingTitle('');
+    setPiercingDesc('');
+    setPiercingPrice('');
+  };
+
+  const loadPiercingForEdit = (row) => {
+    setPiercingEditingId(row.id);
+    setPiercingTitle(row.title || '');
+    setPiercingDesc(row.desc || '');
+    setPiercingPrice(row.price != null ? String(row.price).replace('.', ',') : '');
+    setTab('piercings');
   };
 
   const onWdFile = (e) => {
@@ -388,6 +432,70 @@ export default function AdminApp() {
     }
   };
 
+  const submitPiercing = async (e) => {
+    e.preventDefault();
+    if (!db || !user) return;
+    const title = piercingTitle.trim();
+    const desc = piercingDesc.trim();
+    const price = parsePriceInput(piercingPrice);
+
+    if (!title) {
+      setStatus('Piercing: Titel fehlt.');
+      return;
+    }
+    if (price === null || price <= 0) {
+      setStatus('Piercing: Bitte einen gültigen Preis eingeben.');
+      return;
+    }
+
+    setBusy(true);
+    setStatus('');
+    try {
+      const payload = {
+        title,
+        desc,
+        price,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (piercingEditingId) {
+        await updateDoc(doc(db, 'piercingPrices', piercingEditingId), payload);
+        setStatus('Piercing-Preis aktualisiert.');
+      } else {
+        await addDoc(collection(db, 'piercingPrices'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        setStatus('Piercing-Preis gespeichert.');
+      }
+
+      resetPiercingForm();
+      loadLists();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deletePiercing = async (row) => {
+    if (!db || !user) return;
+    const ok = window.confirm(`„${row.title || 'Piercing'}" wirklich löschen?`);
+    if (!ok) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      await deleteDoc(doc(db, 'piercingPrices', row.id));
+      if (piercingEditingId === row.id) resetPiercingForm();
+      setStatus('Piercing-Preis gelöscht.');
+      loadLists();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!cfg) {
     return (
       <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
@@ -414,7 +522,7 @@ export default function AdminApp() {
           meta={
             <>
               <b>Firestore</b>
-              <div>gallery · wannados</div>
+              <div>gallery · wannados · piercings</div>
             </>
           }
         />
@@ -503,6 +611,13 @@ export default function AdminApp() {
           onClick={() => setTab('wannados')}
         >
           Wanna-dos
+        </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'piercings' ? 'active' : ''}`}
+          onClick={() => setTab('piercings')}
+        >
+          Piercings
         </button>
       </div>
 
@@ -716,6 +831,89 @@ export default function AdminApp() {
               </li>
             ))}
             {wannadoRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {tab === 'piercings' && (
+        <section className="admin-section">
+          <div className="admin-card">
+            <h3 className="admin-h3">{piercingEditingId ? 'Piercing-Preis bearbeiten' : 'Neuer Piercing-Preis'}</h3>
+            <p className="admin-lead cormorant">
+              Pflege hier die öffentliche Preisliste: <code>title</code>, optional <code>desc</code> und{' '}
+              <code>price</code>. Eine Unterscheidung nach Frau/Mann gibt es hier nicht.
+            </p>
+            <form className="admin-form" onSubmit={submitPiercing}>
+              <div className="field">
+                <label>Titel</label>
+                <input
+                  type="text"
+                  value={piercingTitle}
+                  onChange={(e) => setPiercingTitle(e.target.value)}
+                  placeholder="z. B. Helix"
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>Beschreibung optional</label>
+                <textarea
+                  rows={3}
+                  value={piercingDesc}
+                  onChange={(e) => setPiercingDesc(e.target.value)}
+                  placeholder="z. B. inkl. Erstschmuck"
+                />
+              </div>
+              <div className="field admin-field-price">
+                <label>Preis in Euro</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={piercingPrice}
+                  onChange={(e) => setPiercingPrice(e.target.value)}
+                  placeholder="z. B. 45 oder 45,00"
+                  required
+                />
+              </div>
+              <div className="admin-form-actions">
+                <button type="submit" className="btn-primary" disabled={busy}>
+                  {piercingEditingId ? 'Preis aktualisieren' : 'Preis speichern'}
+                </button>
+                {piercingEditingId && (
+                  <button type="button" className="admin-btn-ghost" onClick={resetPiercingForm}>
+                    Abbrechen
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Einträge in Firestore (piercingPrices)</h3>
+            <ul className="admin-doc-list">
+              {piercingRows.map((row) => (
+                <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                  <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadPiercingForEdit(row)}>
+                    <div className="admin-doc-main-text">
+                      <div className="admin-doc-title">{row.title}</div>
+                      <div className="admin-doc-meta">
+                        <span className="admin-price-highlight">{formatPrice(row.price)}</span>
+                        {row.desc ? ` · ${row.desc}` : ''}
+                      </div>
+                      <code className="admin-doc-id">{row.id}</code>
+                    </div>
+                  </button>
+                  <div className="admin-doc-actions">
+                    <button type="button" className="gal-chip" onClick={() => loadPiercingForEdit(row)}>
+                      Bearbeiten
+                    </button>
+                    <button type="button" className="gal-chip admin-doc-delete" onClick={() => deletePiercing(row)}>
+                      Löschen
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {piercingRows.length === 0 && <li className="admin-empty">Noch keine Preise geladen.</li>}
             </ul>
           </div>
         </section>
