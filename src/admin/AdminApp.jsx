@@ -731,7 +731,7 @@ export default function AdminApp() {
       <header className="admin-top">
         <div className="admin-brand">
           <span className="admin-brand-mark">
-            <img src="/og-image.png" alt="" />
+            <img src="/app-icon.jpeg" alt="" />
           </span>
           <span>
             KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span>

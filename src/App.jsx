@@ -58,12 +58,12 @@ function Landing({ onNav, tweaks }) {
   return (
     <div className="stage">
       <Background mode={tweaks.bgMode} goldIntensity={tweaks.gold} />
-      <img className="site-logo-ghost" src="/og-image.png" alt="" aria-hidden="true" />
+      <img className="site-logo-ghost" src="/app-icon.jpeg" alt="" aria-hidden="true" />
 
       <div className="chrome">
         <div className="brand">
           <div className="brand-mark brand-mark-img">
-            <img src="/og-image.png" alt="" />
+            <img src="/app-icon.jpeg" alt="" />
           </div>
           <div>KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span></div>
         </div>
