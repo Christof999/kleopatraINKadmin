@@ -15,6 +15,8 @@ import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebas
 import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
 import { getDb, getBucket, getFirebaseAuth, getFirebaseConfig } from './firebase';
+import brandLogoUrl from '../../IMG_0708.jpeg';
+import { addGalleryWatermark, galleryUploadExtension, preloadWatermarkLogo } from './watermark';
 import '../styles.css';
 import './admin.css';
 
@@ -147,6 +149,12 @@ export default function AdminApp() {
     loadLists();
   }, [loadLists]);
 
+  useEffect(() => {
+    preloadWatermarkLogo(brandLogoUrl).catch(() => {
+      /* Fehler wird beim Upload sichtbar gemeldet. */
+    });
+  }, []);
+
   const onLogin = async (e) => {
     e.preventDefault();
     if (!auth) return;
@@ -242,25 +250,26 @@ export default function AdminApp() {
     setBusy(true);
     setStatus('');
     setGalUploadProgress(0);
-    const totalBytes = galFiles.reduce((s, f) => s + f.size, 0) || 1;
-    let doneBytes = 0;
     let ok = 0;
     try {
       for (let i = 0; i < galFiles.length; i += 1) {
         const galFile = galFiles[i];
-        const ext = galFile.name.split('.').pop() || 'jpg';
+        setStatus(`Wasserzeichen wird vorbereitet (${i + 1}/${galFiles.length}) …`);
+        const uploadFile = await addGalleryWatermark(galFile, brandLogoUrl);
+        const ext = galleryUploadExtension(uploadFile.type, galFile.name);
         const path = `gallery/${Date.now()}_${i}_${Math.random().toString(36).slice(2)}.${ext}`;
         const sref = ref(storage, path);
         const pieceRaw = galPiece.trim();
         const piece = pieceRaw || pieceFromFilename(galFile.name);
 
-        const task = uploadBytesResumable(sref, galFile, { contentType: galFile.type || 'image/jpeg' });
+        const task = uploadBytesResumable(sref, uploadFile, { contentType: uploadFile.type || 'image/jpeg' });
         const src = await new Promise((resolve, reject) => {
           task.on(
             'state_changed',
             (snap) => {
-              const current = doneBytes + snap.bytesTransferred;
-              setGalUploadProgress(Math.min(100, Math.round((current / totalBytes) * 100)));
+              const fileProgress = snap.bytesTransferred / Math.max(1, uploadFile.size);
+              const progress = ((i + fileProgress) / galFiles.length) * 100;
+              setGalUploadProgress(Math.min(99, Math.round(progress)));
             },
             reject,
             async () => {
@@ -275,8 +284,7 @@ export default function AdminApp() {
           createdAt: serverTimestamp(),
         });
         ok += 1;
-        doneBytes += galFile.size;
-        setGalUploadProgress(Math.round((doneBytes / totalBytes) * 100));
+        setGalUploadProgress(Math.round(((i + 1) / galFiles.length) * 100));
       }
       setStatus(`Galerie: ${ok} Bild(er) gespeichert.`);
       clearGalSelection();
@@ -454,7 +462,9 @@ export default function AdminApp() {
     <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
       <header className="admin-top">
         <div className="admin-brand">
-          <span className="admin-brand-mark">K</span>
+          <span className="admin-brand-mark">
+            <img src={brandLogoUrl} alt="" />
+          </span>
           <span>
             KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span>
           </span>
@@ -513,6 +523,9 @@ export default function AdminApp() {
           <p className="admin-lead cormorant">
             Schema: <code>src</code>, <code>style</code>, optional <code>piece</code>, optional <code>createdAt</code> (Server).
             Mehrere Dateien wählen — Upload-Fortschritt siehst du unten.
+          </p>
+          <p className="admin-help">
+            Beim Speichern wird das Logo automatisch farblos, transparent und mittig als Wasserzeichen in jedes Galerie-Bild eingebrannt.
           </p>
           <form className="admin-form" onSubmit={submitGallery}>
             <div className="field">
