@@ -8,17 +8,29 @@ const Body3DViewer    = lazy(() => import('./components/Body3DViewer'));
 import { useTweaks, TweaksPanel, TweakSection, TweakSlider, TweakRadio } from './components/TweaksPanel';
 import { GAL_ITEMS, GAL_FILTERS } from './gallery-items';
 import { getFirebaseConfig } from './firebase/client';
+import { fetchPiercingPricesFromFirestore } from './piercingPricesFirebase';
 import { fetchWannadosFromFirestore } from './wannadosFirebase';
 import { WANNADO_ITEMS } from './wannado-items';
 import './styles.css';
 
+const EUR_FORMATTER = new Intl.NumberFormat('de-DE', {
+  style: 'currency',
+  currency: 'EUR',
+});
+
+function formatPrice(value) {
+  const price = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(price) ? EUR_FORMATTER.format(price) : 'Preis auf Anfrage';
+}
+
 const NAV = [
-  { id: 'gallery',      label: 'Galerie',        sub: 'Werke',       angle: -90  },
-  { id: 'about',        label: 'Das sind wir',   sub: 'Studio',      angle: -30  },
-  { id: 'booking',      label: 'Termin buchen',  sub: 'Appointment', angle:  30  },
-  { id: 'testimonials', label: 'Unsere Kunden',  sub: 'Stimmen',     angle:  90  },
-  { id: 'socials',      label: 'Instagram',      sub: 'Follow',      angle: 150  },
-  { id: 'wannados',     label: 'Wanna-dos',      sub: 'Flash',       angle: 210  },
+  { id: 'gallery',      label: 'Galerie',        sub: 'Werke',       angle: -90 },
+  { id: 'about',        label: 'Das sind wir',   sub: 'Studio',      angle: -38 },
+  { id: 'booking',      label: 'Termin buchen',  sub: 'Appointment', angle:  14 },
+  { id: 'piercings',    label: 'Piercings',      sub: 'Preise',      angle:  66 },
+  { id: 'testimonials', label: 'Unsere Kunden',  sub: 'Stimmen',     angle: 118 },
+  { id: 'socials',      label: 'Instagram',      sub: 'Follow',      angle: 170 },
+  { id: 'wannados',     label: 'Wanna-dos',      sub: 'Flash',       angle: 222 },
 ];
 
 // ── Landing ───────────────────────────────────────────────────────────────────
@@ -46,10 +58,13 @@ function Landing({ onNav, tweaks }) {
   return (
     <div className="stage">
       <Background mode={tweaks.bgMode} goldIntensity={tweaks.gold} />
+      <img className="site-logo-ghost" src="/app-icon.jpeg" alt="" aria-hidden="true" />
 
       <div className="chrome">
         <div className="brand">
-          <div className="brand-mark">K</div>
+          <div className="brand-mark brand-mark-img">
+            <img src="/app-icon.jpeg" alt="" />
+          </div>
           <div>KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span></div>
         </div>
         <div className="chrome-meta">
@@ -291,6 +306,94 @@ const INTERESTS = [
   { id: 'oldschool',      name: 'Oldschool'      },
   { id: 'unsure',         name: 'Noch unsicher'  },
 ];
+
+// ── Piercings ──────────────────────────────────────────────────────────────────
+
+function Piercings({ onBack, onBook }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!getFirebaseConfig()) return undefined;
+
+    setLoading(true);
+    setError('');
+    fetchPiercingPricesFromFirestore()
+      .then((rows) => {
+        if (!cancelled) setItems(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message || String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="page with-bg">
+      <PageHead
+        kicker="Piercings · Preisliste"
+        title="Piercing-" titleEm="Preise"
+        meta={<>
+          <b>{items.length > 0 ? `${items.length} Preise` : 'Demnächst'}</b>
+          <div>ohne Geschlechtertrennung</div>
+        </>}
+        onBack={onBack}
+      />
+
+      <div className="piercing-intro">
+        <p className="cormorant">
+          Unsere Piercing-Preise werden direkt aus der Studio-Verwaltung geladen.
+          Die Angaben gelten ohne Unterscheidung zwischen weiblich und männlich.
+        </p>
+      </div>
+
+      {loading && (
+        <p className="gal-empty" style={{ paddingBottom: 12 }}>
+          Preisliste wird geladen …
+        </p>
+      )}
+      {error && (
+        <p className="gal-empty" style={{ color: 'var(--muted)', paddingBottom: 12 }}>
+          Konnte Preisliste nicht laden ({error}).
+        </p>
+      )}
+
+      {items.length === 0 && !loading ? (
+        <p className="gal-empty">Piercing-Preise folgen bald.</p>
+      ) : (
+        <div className="piercing-list">
+          {items.map((item) => (
+            <article key={item.id} className="piercing-card">
+              <div>
+                <h3 className="piercing-title">{item.title}</h3>
+                {item.desc && <p className="piercing-desc">{item.desc}</p>}
+              </div>
+              <div className="piercing-price">{formatPrice(item.price)}</div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <div className="piercing-note">
+        <div>
+          <b>Fragen zu Schmuck, Heilung oder Termin?</b>
+          <span> Schreib uns deine Idee kurz in die Anfrage.</span>
+        </div>
+        <button type="button" className="wd-btn" onClick={onBook}>
+          Termin anfragen →
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Wanna-dos ─────────────────────────────────────────────────────────────────
 
@@ -659,6 +762,7 @@ export default function App() {
       {page === 'gallery'      && <Gallery onBack={onBack} />}
       {page === 'about'        && <About onBack={onBack} />}
       {page === 'booking'      && <Booking onBack={onBack} wannado={selectedWannado} />}
+      {page === 'piercings'    && <Piercings onBack={onBack} onBook={() => setPage('booking')} />}
       {page === 'testimonials' && <Testimonials onBack={onBack} />}
       {page === 'socials'      && <Socials onBack={onBack} />}
       {page === 'wannados'     && <WannaDos onBack={onBack} onBook={onBookWannado} />}

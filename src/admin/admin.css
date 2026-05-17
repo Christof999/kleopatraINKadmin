@@ -80,6 +80,14 @@
   color: var(--gold-bright);
   background: radial-gradient(circle, rgba(212, 165, 55, 0.18), transparent 70%);
   box-shadow: 0 0 20px rgba(212, 165, 55, 0.12);
+  overflow: hidden;
+}
+
+.admin-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .admin-badge {
@@ -173,6 +181,7 @@
 /* Tabs */
 .admin-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0;
   margin-bottom: 32px;
   padding: 4px;
@@ -233,6 +242,22 @@
 .admin-lead code {
   font-size: 0.88em;
   color: var(--gold);
+}
+
+.admin-help {
+  margin: -10px 0 22px;
+  padding: 12px 14px;
+  border: 1px solid rgba(212, 165, 55, 0.2);
+  border-radius: 4px;
+  background: rgba(212, 165, 55, 0.05);
+  color: var(--ivory-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-help code {
+  color: var(--gold);
+  font-size: 0.9em;
 }
 
 .admin-form {
@@ -378,6 +403,16 @@
   max-width: 160px;
 }
 
+.admin-row .admin-field-inline input[type='email'],
+.admin-row .admin-field-inline input[type='tel'],
+.admin-row .admin-field-inline input[type='text'] {
+  max-width: none;
+}
+
+.admin-field-price input {
+  max-width: 220px;
+}
+
 .admin-form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -462,6 +497,10 @@
   min-width: 0;
 }
 
+.admin-doc-main-no-thumb {
+  padding: 2px 0;
+}
+
 .admin-doc-actions {
   display: flex;
   flex-direction: row;
@@ -502,6 +541,18 @@
   color: var(--ivory-dim);
   margin-top: 4px;
   line-height: 1.35;
+}
+
+.admin-price-highlight {
+  color: var(--gold-bright);
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.08em;
+}
+
+.admin-user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
 }
 
 .admin-doc-id {

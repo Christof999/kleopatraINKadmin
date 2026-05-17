@@ -14,7 +14,6 @@ service cloud.firestore {
         ];
     }
 
-    // Öffentliche Leseregeln für die Website anpassen (z. B. nur lesen).
     match /gallery/{docId} {
       allow read: if true;
       allow write: if isAdmin();

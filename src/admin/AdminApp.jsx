@@ -5,6 +5,7 @@ import {
   doc,
   getDocs,
   limit,
+  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -20,7 +21,56 @@ import './admin.css';
 
 const Body3DViewer = lazy(() => import('../components/Body3DViewer'));
 
+const ADMIN_EMAILS = new Set(['info@soergel-design.de', 'info@kleopatra-ink.com']);
 const CAMERA_PATTERN = /^(img|dsc|dscn|p\d|mgim|mvim)[-_]?\d/i;
+const EUR_FORMATTER = new Intl.NumberFormat('de-DE', {
+  style: 'currency',
+  currency: 'EUR',
+});
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.has(String(email || '').trim().toLowerCase());
+}
+
+function adminAccessMessage(email) {
+  return email
+    ? `Dieses Konto (${email}) ist nicht für das Admin-Portal freigeschaltet.`
+    : 'Dieses Konto ist nicht für das Admin-Portal freigeschaltet.';
+}
+
+function parsePriceInput(value) {
+  const normalized = String(value).trim().replace(/\./g, '').replace(',', '.');
+  const price = Number(normalized);
+  return Number.isFinite(price) ? price : null;
+}
+
+function formatPrice(value) {
+  const price = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(price) ? EUR_FORMATTER.format(price) : '—';
+}
+
+function sortPiercingRows(rows) {
+  return [...rows].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+}
+
+function userFullName(row) {
+  const firstName = row.firstName || row.firstname || '';
+  const lastName = row.lastName || row.lastname || '';
+  const combined = `${firstName} ${lastName}`.trim();
+  return row.fullName || row.name || combined || 'Ohne Namen';
+}
+
+function userPhone(row) {
+  return row.phone || row.phoneNumber || row.telephone || row.tel || '';
+}
+
+function sortUserRows(rows) {
+  return [...rows].sort((a, b) => {
+    const nameCompare = userFullName(a).localeCompare(userFullName(b));
+    if (nameCompare !== 0) return nameCompare;
+    return (a.email || '').localeCompare(b.email || '');
+  });
+}
 
 function pieceFromFilename(filename) {
   const base = filename.replace(/\.[^.]+$/, '');
@@ -113,13 +163,43 @@ export default function AdminApp() {
   const [wdEditingId, setWdEditingId] = useState(null);
   const [wdRemoteSrc, setWdRemoteSrc] = useState(null);
   const [wdPlacementInitial, setWdPlacementInitial] = useState(null);
+  const [piercingTitle, setPiercingTitle] = useState('');
+  const [piercingDesc, setPiercingDesc] = useState('');
+  const [piercingPrice, setPiercingPrice] = useState('');
+  const [piercingEditingId, setPiercingEditingId] = useState(null);
+  const [customerEditingId, setCustomerEditingId] = useState(null);
+  const [customerFirstName, setCustomerFirstName] = useState('');
+  const [customerLastName, setCustomerLastName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [galleryRows, setGalleryRows] = useState([]);
   const [wannadoRows, setWannadoRows] = useState([]);
+  const [piercingRows, setPiercingRows] = useState([]);
+  const [customerRows, setCustomerRows] = useState([]);
   const placement3dRef = useRef(null);
 
   useEffect(() => {
     if (!auth) return undefined;
-    return onAuthStateChanged(auth, setUser);
+    return onAuthStateChanged(auth, async (nextUser) => {
+      if (!nextUser) {
+        setUser(null);
+        return;
+      }
+
+      if (isAdminEmail(nextUser.email)) {
+        setAuthError('');
+        setUser(nextUser);
+        return;
+      }
+
+      setUser(null);
+      setAuthError(adminAccessMessage(nextUser.email));
+      try {
+        await signOut(auth);
+      } catch {
+        /* Auth-State wird beim nächsten Wechsel erneut geprüft. */
+      }
+    });
   }, [auth]);
 
   const loadLists = useCallback(async () => {
@@ -147,13 +227,75 @@ export default function AdminApp() {
     loadLists();
   }, [loadLists]);
 
+  useEffect(() => {
+    if (!db || !user) {
+      setPiercingRows([]);
+      return undefined;
+    }
+
+    const piercingQuery = query(collection(db, 'piercingPrices'), limit(200));
+    return onSnapshot(
+      piercingQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setPiercingRows(sortPiercingRows(rows));
+      },
+      (e) => {
+        setPiercingRows([]);
+        setListError((current) => {
+          const otherParts = current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('Piercings:'));
+          return [...otherParts, `Piercings: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
+
+  useEffect(() => {
+    if (!db || !user) {
+      setCustomerRows([]);
+      return undefined;
+    }
+
+    const usersQuery = query(collection(db, 'users'), limit(500));
+    return onSnapshot(
+      usersQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setCustomerRows(sortUserRows(rows));
+        setListError((current) =>
+          current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('User:'))
+            .join(' · '),
+        );
+      },
+      (e) => {
+        setCustomerRows([]);
+        setListError((current) => {
+          const otherParts = current
+            .split(' · ')
+            .filter((part) => part && !part.startsWith('User:'));
+          return [...otherParts, `User: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
+
   const onLogin = async (e) => {
     e.preventDefault();
     if (!auth) return;
     setAuthError('');
     setBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+      const credential = await signInWithEmailAndPassword(auth, authEmail.trim().toLowerCase(), authPassword);
+      if (!isAdminEmail(credential.user.email)) {
+        await signOut(auth);
+        setUser(null);
+        setAuthError(adminAccessMessage(credential.user.email));
+        return;
+      }
       setAuthPassword('');
     } catch (err) {
       setAuthError(err.message || String(err));
@@ -219,6 +361,40 @@ export default function AdminApp() {
     placement3dRef.current = row.placement3d ?? null;
     setWdPlacementInitial(row.placement3d ?? null);
     setTab('wannados');
+  };
+
+  const resetPiercingForm = () => {
+    setPiercingEditingId(null);
+    setPiercingTitle('');
+    setPiercingDesc('');
+    setPiercingPrice('');
+  };
+
+  const loadPiercingForEdit = (row) => {
+    setPiercingEditingId(row.id);
+    setPiercingTitle(row.title || '');
+    setPiercingDesc(row.desc || '');
+    setPiercingPrice(row.price != null ? String(row.price).replace('.', ',') : '');
+    setTab('piercings');
+  };
+
+  const resetCustomerForm = () => {
+    setCustomerEditingId(null);
+    setCustomerFirstName('');
+    setCustomerLastName('');
+    setCustomerEmail('');
+    setCustomerPhone('');
+  };
+
+  const loadCustomerForEdit = (row) => {
+    const fullName = userFullName(row);
+    const parts = fullName === 'Ohne Namen' ? [] : fullName.split(/\s+/);
+    setCustomerEditingId(row.id);
+    setCustomerFirstName(row.firstName || row.firstname || parts.slice(0, -1).join(' ') || fullName);
+    setCustomerLastName(row.lastName || row.lastname || (parts.length > 1 ? parts.slice(-1).join('') : ''));
+    setCustomerEmail(row.email || '');
+    setCustomerPhone(userPhone(row));
+    setTab('users');
   };
 
   const onWdFile = (e) => {
@@ -388,6 +564,106 @@ export default function AdminApp() {
     }
   };
 
+  const submitPiercing = async (e) => {
+    e.preventDefault();
+    if (!db || !user) return;
+    const title = piercingTitle.trim();
+    const desc = piercingDesc.trim();
+    const price = parsePriceInput(piercingPrice);
+
+    if (!title) {
+      setStatus('Piercing: Titel fehlt.');
+      return;
+    }
+    if (price === null || price <= 0) {
+      setStatus('Piercing: Bitte einen gültigen Preis eingeben.');
+      return;
+    }
+
+    setBusy(true);
+    setStatus('');
+    try {
+      const payload = {
+        title,
+        desc,
+        price,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (piercingEditingId) {
+        await updateDoc(doc(db, 'piercingPrices', piercingEditingId), payload);
+        setStatus('Piercing-Preis aktualisiert.');
+      } else {
+        await addDoc(collection(db, 'piercingPrices'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        setStatus('Piercing-Preis gespeichert.');
+      }
+
+      resetPiercingForm();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deletePiercing = async (row) => {
+    if (!db || !user) return;
+    const ok = window.confirm(`„${row.title || 'Piercing'}" wirklich löschen?`);
+    if (!ok) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      await deleteDoc(doc(db, 'piercingPrices', row.id));
+      if (piercingEditingId === row.id) resetPiercingForm();
+      setStatus('Piercing-Preis gelöscht.');
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCustomer = async (e) => {
+    e.preventDefault();
+    if (!db || !user || !customerEditingId) return;
+
+    const firstName = customerFirstName.trim();
+    const lastName = customerLastName.trim();
+    const email = customerEmail.trim().toLowerCase();
+    const phone = customerPhone.trim();
+
+    if (!firstName || !lastName) {
+      setStatus('User: Vor- und Nachname fehlen.');
+      return;
+    }
+    if (!email) {
+      setStatus('User: E-Mail-Adresse fehlt.');
+      return;
+    }
+
+    setBusy(true);
+    setStatus('');
+    try {
+      await updateDoc(doc(db, 'users', customerEditingId), {
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`.trim(),
+        email,
+        phone,
+        updatedAt: serverTimestamp(),
+      });
+      setStatus('User-Profil aktualisiert.');
+      resetCustomerForm();
+    } catch (err) {
+      setStatus(err.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!cfg) {
     return (
       <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
@@ -413,8 +689,8 @@ export default function AdminApp() {
           titleEm="Login"
           meta={
             <>
-              <b>Firestore</b>
-              <div>gallery · wannados</div>
+              <b>Geschützter Bereich</b>
+              <div>Nur für freigeschaltete Admins</div>
             </>
           }
         />
@@ -454,7 +730,9 @@ export default function AdminApp() {
     <div className="page with-bg admin-wrap admin-app" style={{ minHeight: '100vh' }}>
       <header className="admin-top">
         <div className="admin-brand">
-          <span className="admin-brand-mark">K</span>
+          <span className="admin-brand-mark">
+            <img src="/app-icon.jpeg" alt="" />
+          </span>
           <span>
             KLEOPATRA <span style={{ color: 'var(--ivory-dim)' }}>INK</span>
           </span>
@@ -504,6 +782,20 @@ export default function AdminApp() {
         >
           Wanna-dos
         </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'piercings' ? 'active' : ''}`}
+          onClick={() => setTab('piercings')}
+        >
+          Piercings
+        </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'users' ? 'active' : ''}`}
+          onClick={() => setTab('users')}
+        >
+          User
+        </button>
       </div>
 
       {tab === 'gallery' && (
@@ -511,8 +803,8 @@ export default function AdminApp() {
           <div className="admin-card">
             <h3 className="admin-h3">Neue Galerie-Bilder</h3>
           <p className="admin-lead cormorant">
-            Schema: <code>src</code>, <code>style</code>, optional <code>piece</code>, optional <code>createdAt</code> (Server).
-            Mehrere Dateien wählen — Upload-Fortschritt siehst du unten.
+            Wähle ein oder mehrere fertige Tattoo-Fotos aus, ordne sie einem Stil zu und speichere sie.
+            Ein Anzeigename ist optional und kann leer bleiben.
           </p>
           <form className="admin-form" onSubmit={submitGallery}>
             <div className="field">
@@ -530,7 +822,7 @@ export default function AdminApp() {
               </div>
             )}
             <div className="field">
-              <label>Stil (style)</label>
+              <label>Tattoo-Stil</label>
               <select value={galStyle} onChange={(e) => setGalStyle(e.target.value)}>
                 {TATTOO_STYLES.map((s) => (
                   <option key={s} value={s}>
@@ -541,7 +833,7 @@ export default function AdminApp() {
             </div>
             <div className="field">
               <label>
-                Anzeigename (piece) <span style={{ opacity: 0.5 }}>optional</span>
+                Anzeigename <span style={{ opacity: 0.5 }}>optional</span>
               </label>
               <input
                 type="text"
@@ -565,7 +857,7 @@ export default function AdminApp() {
           </div>
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Zuletzt in Firestore (gallery)</h3>
+            <h3 className="admin-h3">Zuletzt gespeicherte Galerie-Bilder</h3>
             <ul className="admin-doc-list">
               {galleryRows.map((row) => (
               <li key={row.id} className="admin-doc-item">
@@ -588,9 +880,9 @@ export default function AdminApp() {
           <div className="admin-card">
             <h3 className="admin-h3">{wdEditingId ? 'Wanna-do bearbeiten' : 'Neues Wanna-do'}</h3>
           <p className="admin-lead cormorant">
-            Pflichtfelder wie auf der Hauptseite: <code>src</code>, <code>title</code>, <code>style</code>,{' '}
-            <code>placement</code>, <code>target</code>. Optional: <code>desc</code>, <code>available</code>,{' '}
-            <code>order</code>. Zusätzlich: <code>placement3d</code>, wenn du im Viewer klickst.
+            Lade ein Motiv hoch, gib Titel, Stil und Körperstelle an und lege fest, ob es für Frauen,
+            Männer oder alle angezeigt werden soll. Optional kannst du eine kurze Beschreibung,
+            Sortierung und eine 3D-Platzierung ergänzen.
           </p>
           <form className="admin-form" onSubmit={submitWannado}>
             <div className="field">
@@ -633,7 +925,7 @@ export default function AdminApp() {
               </datalist>
             </div>
             <div className="field">
-              <label>Zielgruppe (target)</label>
+              <label>Für wen soll es angezeigt werden?</label>
               <select value={wdTarget} onChange={(e) => setWdTarget(e.target.value)}>
                 {WANNADO_TARGETS.map((t) => (
                   <option key={t} value={t}>
@@ -643,16 +935,16 @@ export default function AdminApp() {
               </select>
             </div>
             <div className="field">
-              <label>Beschreibung (desc) · optional</label>
+              <label>Beschreibung optional</label>
               <textarea rows={3} value={wdDesc} onChange={(e) => setWdDesc(e.target.value)} placeholder="Kurzbeschreibung" />
             </div>
             <div className="admin-row">
               <label className="admin-check">
                 <input type="checkbox" checked={wdAvailable} onChange={(e) => setWdAvailable(e.target.checked)} />
-                <span>verfügbar (available)</span>
+                <span>verfügbar</span>
               </label>
               <div className="field admin-field-inline">
-                <label>Sortierung (order) · optional</label>
+                <label>Reihenfolge optional</label>
                 <input type="number" value={wdOrder} onChange={(e) => setWdOrder(e.target.value)} placeholder="z. B. 10" />
               </div>
             </div>
@@ -661,7 +953,7 @@ export default function AdminApp() {
               <div className="wd-3d-header">
                 <h3 className="wd-3d-title">3D-Vorschau & Platzierung</h3>
                 <p className="wd-3d-sub">
-                  Nach Bildwahl: Motiv auf dem Körper platzieren — wird als <code>placement3d</code> mitgespeichert (optional).
+                  Optional: Klicke auf den Körper, um das Motiv als Vorschau an der passenden Stelle zu platzieren.
                 </p>
               </div>
               <Suspense fallback={<div className="body3d-loading">3D wird geladen …</div>}>
@@ -691,7 +983,7 @@ export default function AdminApp() {
           </div>
 
           <div className="admin-card admin-card-list">
-            <h3 className="admin-h3">Einträge in Firestore (wannados)</h3>
+            <h3 className="admin-h3">Gespeicherte Wanna-dos</h3>
             <ul className="admin-doc-list">
               {wannadoRows.map((row) => (
               <li key={row.id} className="admin-doc-item admin-doc-item-row">
@@ -716,6 +1008,181 @@ export default function AdminApp() {
               </li>
             ))}
             {wannadoRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {tab === 'piercings' && (
+        <section className="admin-section">
+          <div className="admin-card">
+            <h3 className="admin-h3">{piercingEditingId ? 'Piercing-Preis bearbeiten' : 'Neuer Piercing-Preis'}</h3>
+            <p className="admin-lead cormorant">
+              Trage hier ein Piercing mit Preis ein. Die Beschreibung ist freiwillig und kann zum Beispiel
+              Hinweise wie „inklusive Erstschmuck“ enthalten.
+            </p>
+            <form className="admin-form" onSubmit={submitPiercing}>
+              <div className="field">
+                <label>Titel</label>
+                <input
+                  type="text"
+                  value={piercingTitle}
+                  onChange={(e) => setPiercingTitle(e.target.value)}
+                  placeholder="z. B. Helix"
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>Beschreibung optional</label>
+                <textarea
+                  rows={3}
+                  value={piercingDesc}
+                  onChange={(e) => setPiercingDesc(e.target.value)}
+                  placeholder="z. B. inkl. Erstschmuck"
+                />
+              </div>
+              <div className="field admin-field-price">
+                <label>Preis in Euro</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={piercingPrice}
+                  onChange={(e) => setPiercingPrice(e.target.value)}
+                  placeholder="z. B. 45 oder 45,00"
+                  required
+                />
+              </div>
+              <div className="admin-form-actions">
+                <button type="submit" className="btn-primary" disabled={busy}>
+                  {piercingEditingId ? 'Preis aktualisieren' : 'Preis speichern'}
+                </button>
+                {piercingEditingId && (
+                  <button type="button" className="admin-btn-ghost" onClick={resetPiercingForm}>
+                    Abbrechen
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Gespeicherte Piercing-Preise</h3>
+            <ul className="admin-doc-list">
+              {piercingRows.map((row) => (
+                <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                  <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadPiercingForEdit(row)}>
+                    <div className="admin-doc-main-text">
+                      <div className="admin-doc-title">{row.title}</div>
+                      <div className="admin-doc-meta">
+                        <span className="admin-price-highlight">{formatPrice(row.price)}</span>
+                        {row.desc ? ` · ${row.desc}` : ''}
+                      </div>
+                      <code className="admin-doc-id">{row.id}</code>
+                    </div>
+                  </button>
+                  <div className="admin-doc-actions">
+                    <button type="button" className="gal-chip" onClick={() => loadPiercingForEdit(row)}>
+                      Bearbeiten
+                    </button>
+                    <button type="button" className="gal-chip admin-doc-delete" onClick={() => deletePiercing(row)}>
+                      Löschen
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {piercingRows.length === 0 && <li className="admin-empty">Noch keine Preise geladen.</li>}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {tab === 'users' && (
+        <section className="admin-section">
+          {customerEditingId && (
+            <div className="admin-card">
+              <h3 className="admin-h3">User bearbeiten</h3>
+              <p className="admin-lead cormorant">
+                Ändere hier die gespeicherten Kontaktdaten des Kunden. Das Passwort bleibt dabei unverändert.
+              </p>
+              <form className="admin-form" onSubmit={submitCustomer}>
+                <div className="admin-row">
+                  <div className="field admin-field-inline">
+                    <label>Vorname</label>
+                    <input
+                      type="text"
+                      value={customerFirstName}
+                      onChange={(e) => setCustomerFirstName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field admin-field-inline">
+                    <label>Nachname</label>
+                    <input
+                      type="text"
+                      value={customerLastName}
+                      onChange={(e) => setCustomerLastName(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="admin-row">
+                  <div className="field admin-field-inline">
+                    <label>E-Mail</label>
+                    <input
+                      type="email"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field admin-field-inline">
+                    <label>Telefon</label>
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="admin-form-actions">
+                  <button type="submit" className="btn-primary" disabled={busy}>
+                    User speichern
+                  </button>
+                  <button type="button" className="admin-btn-ghost" onClick={resetCustomerForm}>
+                    Abbrechen
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="admin-card admin-card-list">
+            <h3 className="admin-h3">Registrierte Kunden</h3>
+            <p className="admin-help">
+              Hier siehst du alle Kunden, die sich auf der Website registriert haben.
+              Klicke auf einen Eintrag, um Name, E-Mail-Adresse oder Telefonnummer zu bearbeiten.
+            </p>
+            <ul className="admin-doc-list">
+              {customerRows.map((row) => (
+                <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                  <button type="button" className="admin-doc-main admin-doc-main-no-thumb" onClick={() => loadCustomerForEdit(row)}>
+                    <div className="admin-doc-main-text">
+                      <div className="admin-doc-title">{userFullName(row)}</div>
+                      <div className="admin-doc-meta admin-user-meta">
+                        <span>{row.email || 'Keine E-Mail'}</span>
+                        <span>{userPhone(row) || 'Keine Telefonnummer'}</span>
+                      </div>
+                      <code className="admin-doc-id">{row.id}</code>
+                    </div>
+                  </button>
+                  <div className="admin-doc-actions">
+                    <button type="button" className="gal-chip" onClick={() => loadCustomerForEdit(row)}>
+                      Bearbeiten
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {customerRows.length === 0 && <li className="admin-empty">Noch keine User geladen.</li>}
             </ul>
           </div>
         </section>
