@@ -676,6 +676,87 @@
   }
 }
 
+/* ── User-Suche ────────────────────────────────────────────────────────────── */
+
+.admin-user-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.admin-user-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 38px 11px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ivory);
+  background: rgba(10, 8, 6, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  outline: none;
+  transition: border-color 200ms, background 200ms;
+}
+
+.admin-user-search input:focus {
+  border-color: rgba(212, 165, 55, 0.55);
+  background: rgba(10, 8, 6, 0.75);
+}
+
+.admin-user-search input::placeholder {
+  color: var(--muted);
+}
+
+.admin-user-search-clear {
+  position: absolute;
+  right: 96px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--ivory-dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 180ms, background 180ms;
+}
+
+.admin-user-search-clear:hover {
+  color: var(--gold-bright);
+  background: rgba(212, 165, 55, 0.1);
+}
+
+.admin-user-search-count {
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ivory-dim);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .admin-user-search {
+    flex-wrap: wrap;
+  }
+
+  .admin-user-search-clear {
+    right: 14px;
+  }
+
+  .admin-user-search-count {
+    width: 100%;
+    text-align: right;
+  }
+}
+
 /* ── Glücksrad ─────────────────────────────────────────────────────────────── */
 
 .admin-user-card {

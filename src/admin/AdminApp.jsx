@@ -222,6 +222,7 @@ export default function AdminApp() {
   const [wheelDirty, setWheelDirty] = useState(false);
   const [wheelLoaded, setWheelLoaded] = useState(false);
   const [expandedUserId, setExpandedUserId] = useState(null);
+  const [userSearch, setUserSearch] = useState('');
   const placement3dRef = useRef(null);
 
   useEffect(() => {
@@ -1368,8 +1369,54 @@ export default function AdminApp() {
               Klicke auf einen Eintrag, um Name, E-Mail-Adresse oder Telefonnummer zu bearbeiten.
               Über „Glücksrad anzeigen" siehst du den Spin-Status und kannst den nächsten Dreh freigeben.
             </p>
-            <ul className="admin-doc-list">
-              {customerRows.map((row) => {
+            {(() => {
+              const q = userSearch.trim().toLowerCase();
+              const filteredCustomers = q
+                ? customerRows.filter((row) => {
+                    const haystack = [
+                      row.firstName,
+                      row.firstname,
+                      row.lastName,
+                      row.lastname,
+                      row.fullName,
+                      row.name,
+                      row.email,
+                      userPhone(row),
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                      .toLowerCase();
+                    return haystack.includes(q);
+                  })
+                : customerRows;
+              return (
+                <>
+                  <div className="admin-user-search">
+                    <input
+                      type="search"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      placeholder="Suche: Name, E-Mail oder Telefon …"
+                      aria-label="User durchsuchen"
+                    />
+                    {userSearch && (
+                      <button
+                        type="button"
+                        className="admin-user-search-clear"
+                        onClick={() => setUserSearch('')}
+                        aria-label="Suche zurücksetzen"
+                      >
+                        ×
+                      </button>
+                    )}
+                    {q && (
+                      <span className="admin-user-search-count">
+                        {filteredCustomers.length} von {customerRows.length}
+                      </span>
+                    )}
+                  </div>
+                  <ul className="admin-doc-list">
+                    {filteredCustomers.map((row) => {
                 const history = Array.isArray(row.wheelSpinHistory) ? row.wheelSpinHistory : [];
                 const latestSpin = history.length > 0 ? history[history.length - 1] : null;
                 const canSpin = row.wheelSpinAvailable !== false;
@@ -1479,11 +1526,17 @@ export default function AdminApp() {
                         </div>
                       </div>
                     )}
-                  </li>
-                );
-              })}
-              {customerRows.length === 0 && <li className="admin-empty">Noch keine User geladen.</li>}
-            </ul>
+                    </li>
+                  );
+                })}
+                    {customerRows.length === 0 && <li className="admin-empty">Noch keine User geladen.</li>}
+                    {customerRows.length > 0 && filteredCustomers.length === 0 && (
+                      <li className="admin-empty">Keine User passen zur Suche.</li>
+                    )}
+                  </ul>
+                </>
+              );
+            })()}
           </div>
         </section>
       )}
