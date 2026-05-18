@@ -253,13 +253,6 @@ export default function AdminApp() {
     if (!db || !user) return;
     const parts = [];
     try {
-      const gSnap = await getDocs(query(collection(db, 'gallery'), limit(50)));
-      setGalleryRows(gSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      parts.push(`Galerie: ${e.message || String(e)}`);
-      setGalleryRows([]);
-    }
-    try {
       const wSnap = await getDocs(query(collection(db, 'wannados'), limit(200)));
       setWannadoRows(wSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (e) {
@@ -273,6 +266,32 @@ export default function AdminApp() {
   useEffect(() => {
     loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    if (!db || !user) {
+      setGalleryRows([]);
+      return undefined;
+    }
+    const galleryQuery = query(collection(db, 'gallery'), limit(200));
+    return onSnapshot(
+      galleryQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        rows.sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() ?? 0;
+          const tb = b.createdAt?.toMillis?.() ?? 0;
+          return tb - ta;
+        });
+        setGalleryRows(rows);
+      },
+      (e) => {
+        setListError((current) => {
+          const otherParts = current.split(' · ').filter((p) => p && !p.startsWith('Galerie:'));
+          return [...otherParts, `Galerie: ${e.message || String(e)}`].join(' · ');
+        });
+      },
+    );
+  }, [db, user]);
 
   useEffect(() => {
     if (!db || !user) {
@@ -488,6 +507,73 @@ export default function AdminApp() {
     setWdPlacementInitial(null);
   };
 
+  const triggerFlickrUpload = useCallback(async (galleryId, payload) => {
+    if (!db || !auth?.currentUser) return;
+    const docRef = doc(db, 'gallery', galleryId);
+    try {
+      await updateDoc(docRef, {
+        flickr: { status: 'pending', startedAt: new Date().toISOString() },
+      });
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await fetch('/api/flickr-upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          downloadUrl: payload.src,
+          docId: galleryId,
+          style: payload.style || '',
+          piece: payload.piece || '',
+        }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { success: false, error: `Antwort konnte nicht gelesen werden (HTTP ${res.status})` };
+      }
+      if (res.ok && data.success) {
+        await updateDoc(docRef, {
+          flickr: {
+            status: 'success',
+            photoId: data.photoId || '',
+            photoUrl: data.photoUrl || '',
+            title: data.title || '',
+            tags: data.tags || '',
+            uploadedAt: serverTimestamp(),
+          },
+        });
+      } else {
+        await updateDoc(docRef, {
+          flickr: {
+            status: 'failed',
+            error: data.error || `HTTP ${res.status}`,
+            attemptedAt: serverTimestamp(),
+          },
+        });
+      }
+    } catch (e) {
+      try {
+        await updateDoc(docRef, {
+          flickr: {
+            status: 'failed',
+            error: e.message || String(e),
+            attemptedAt: serverTimestamp(),
+          },
+        });
+      } catch {
+        /* Update ebenfalls fehlgeschlagen — Network down. */
+      }
+    }
+  }, [db, auth]);
+
+  const retryFlickrUpload = (row) => {
+    if (!row?.id || !row?.src) return;
+    triggerFlickrUpload(row.id, { src: row.src, style: row.style, piece: row.piece });
+  };
+
   const submitGallery = async (e) => {
     e.preventDefault();
     if (!db || !storage || !user) return;
@@ -524,12 +610,15 @@ export default function AdminApp() {
             },
           );
         });
-        await addDoc(collection(db, 'gallery'), {
+        const created = await addDoc(collection(db, 'gallery'), {
           src,
           style: galStyle,
           ...(piece ? { piece } : {}),
           createdAt: serverTimestamp(),
+          flickr: { status: 'pending', startedAt: new Date().toISOString() },
         });
+        // Flickr-Upload im Hintergrund (nicht-blockierend), Status landet im Doc.
+        triggerFlickrUpload(created.id, { src, style: galStyle, piece });
         ok += 1;
         doneBytes += galFile.size;
         setGalUploadProgress(Math.round((doneBytes / totalBytes) * 100));
@@ -1064,18 +1153,66 @@ export default function AdminApp() {
 
           <div className="admin-card admin-card-list">
             <h3 className="admin-h3">Zuletzt gespeicherte Galerie-Bilder</h3>
+            <p className="admin-help">
+              Originale gehen automatisch an Flickr (Pixsy-Sync für Urheberschutz).
+              Bei Fehlern erscheint ein Button für manuellen Re-Upload.
+            </p>
             <ul className="admin-doc-list">
-              {galleryRows.map((row) => (
-              <li key={row.id} className="admin-doc-item">
-                <img src={row.src} alt="" className="admin-doc-thumb" />
-                <div>
-                  <div className="admin-doc-title">{row.style}</div>
-                  <div className="admin-doc-meta">{row.piece || '—'}</div>
-                  <code className="admin-doc-id">{row.id}</code>
-                </div>
-              </li>
-            ))}
-            {galleryRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
+              {galleryRows.map((row) => {
+                const f = row.flickr || null;
+                const status = f?.status || 'none';
+                const statusLabel =
+                  status === 'success' ? 'Flickr synchronisiert'
+                    : status === 'pending' ? 'Flickr läuft …'
+                    : status === 'failed' ? 'Flickr fehlgeschlagen'
+                    : 'Flickr nicht synchronisiert';
+                const showRetry = status === 'failed' || status === 'none';
+                return (
+                  <li key={row.id} className="admin-doc-item admin-doc-item-row">
+                    <div className="admin-doc-main admin-doc-main-static">
+                      <img src={row.src} alt="" className="admin-doc-thumb" />
+                      <div className="admin-doc-main-text">
+                        <div className="admin-doc-title">{row.style}</div>
+                        <div className="admin-doc-meta">{row.piece || '—'}</div>
+                        <div className="admin-flickr-meta">
+                          <span className={`admin-flickr-pill admin-flickr-pill-${status}`}>
+                            {statusLabel}
+                          </span>
+                          {f?.photoUrl && (
+                            <a
+                              href={f.photoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="admin-flickr-link"
+                            >
+                              Auf Flickr ansehen ↗
+                            </a>
+                          )}
+                          {status === 'failed' && f?.error && (
+                            <span className="admin-flickr-error" title={f.error}>
+                              {f.error.length > 80 ? `${f.error.slice(0, 80)}…` : f.error}
+                            </span>
+                          )}
+                        </div>
+                        <code className="admin-doc-id">{row.id}</code>
+                      </div>
+                    </div>
+                    {showRetry && (
+                      <div className="admin-doc-actions">
+                        <button
+                          type="button"
+                          className="gal-chip"
+                          onClick={() => retryFlickrUpload(row)}
+                          disabled={busy}
+                        >
+                          {status === 'none' ? 'Zu Flickr hochladen' : 'Erneut versuchen'}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+              {galleryRows.length === 0 && <li className="admin-empty">Noch keine Einträge geladen.</li>}
             </ul>
           </div>
         </section>

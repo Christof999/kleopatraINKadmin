@@ -6,7 +6,8 @@
     "dev": "vite",
     "dev:admin": "vite --open /admin.html",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "flickr:setup": "node scripts/flickr-oauth-setup.js"
   },
   "dependencies": {
     "firebase": "^11.6.0",

@@ -676,6 +676,103 @@
   }
 }
 
+/* ── Flickr-Status (Galerie) ───────────────────────────────────────────────── */
+
+.admin-doc-main-static {
+  cursor: default;
+}
+
+.admin-doc-main-static:hover .admin-doc-title {
+  color: inherit;
+}
+
+.admin-flickr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.admin-flickr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ivory-dim);
+  background: rgba(10, 8, 6, 0.4);
+}
+
+.admin-flickr-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+.admin-flickr-pill-success {
+  border-color: rgba(120, 200, 120, 0.45);
+  background: rgba(120, 200, 120, 0.08);
+  color: #b9e2b9;
+}
+
+.admin-flickr-pill-pending {
+  border-color: rgba(212, 165, 55, 0.55);
+  background: rgba(212, 165, 55, 0.08);
+  color: var(--gold-bright);
+}
+
+.admin-flickr-pill-pending::before {
+  animation: admin-flickr-pulse 1.4s ease-in-out infinite;
+}
+
+.admin-flickr-pill-failed {
+  border-color: rgba(200, 100, 100, 0.55);
+  background: rgba(200, 100, 100, 0.08);
+  color: #e8b4b4;
+}
+
+.admin-flickr-pill-none {
+  opacity: 0.7;
+}
+
+@keyframes admin-flickr-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.admin-flickr-link {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(212, 165, 55, 0.4);
+  transition: color 180ms, border-color 180ms;
+}
+
+.admin-flickr-link:hover {
+  color: var(--gold-bright);
+  border-bottom-color: var(--gold);
+}
+
+.admin-flickr-error {
+  font-size: 11px;
+  color: #d9a8a8;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── User-Suche ────────────────────────────────────────────────────────────── */
 
 .admin-user-search {
