@@ -21,14 +21,7 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
-    // Originale für Flickr (ohne Wasserzeichen) — lesbar per Download-URL für Server-Upload
-    match /gallery-originals/{fileName} {
-      allow read: if true;
-      allow create, update: if isAdmin()
-        && request.resource.size < 15 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-      allow delete: if isAdmin();
-    }
+    // Originale für Flickr: gallery/orig_* (gleiche match-Regel wie oben)
 
     // ── Wanna-dos (Admin-App: Pfad wannados/...)
     match /wannados/{fileName} {

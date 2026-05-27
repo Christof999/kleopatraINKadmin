@@ -629,8 +629,10 @@ export default function AdminApp() {
             );
           });
 
+        // Original unter gallery/orig_* — nutzt bestehende Storage-Regel match /gallery/{fileName}
+        // (kein separater Pfad gallery-originals/, der ggf. noch nicht deployed ist)
         const [originalSrc, src] = await Promise.all([
-          uploadOne(galFile, `gallery-originals/${baseId}.${extOrig}`, galFile.type),
+          uploadOne(galFile, `gallery/orig_${baseId}.${extOrig}`, galFile.type),
           uploadOne(uploadFile, `gallery/${baseId}.${ext}`, uploadFile.type),
         ]);
 
