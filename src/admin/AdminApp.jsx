@@ -18,6 +18,8 @@ import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
 import LuckyWheel, { formatSegment, segmentColor } from '../components/LuckyWheel';
 import { getDb, getBucket, getFirebaseAuth, getFirebaseConfig } from './firebase';
+import brandLogoUrl from '../../IMG_0708.jpeg';
+import { addGalleryWatermark, galleryUploadExtension, preloadWatermarkLogo } from './watermark';
 import '../styles.css';
 import './admin.css';
 
@@ -266,6 +268,12 @@ export default function AdminApp() {
   useEffect(() => {
     loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    preloadWatermarkLogo(brandLogoUrl).catch(() => {
+      /* Fehler wird beim Galerie-Upload angezeigt. */
+    });
+  }, []);
 
   useEffect(() => {
     if (!db || !user) {
@@ -522,7 +530,7 @@ export default function AdminApp() {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          downloadUrl: payload.src,
+          downloadUrl: payload.originalSrc || payload.src,
           docId: galleryId,
           style: payload.style || '',
           piece: payload.piece || '',
@@ -571,7 +579,12 @@ export default function AdminApp() {
 
   const retryFlickrUpload = (row) => {
     if (!row?.id || !row?.src) return;
-    triggerFlickrUpload(row.id, { src: row.src, style: row.style, piece: row.piece });
+    triggerFlickrUpload(row.id, {
+      src: row.src,
+      originalSrc: row.originalSrc,
+      style: row.style,
+      piece: row.piece,
+    });
   };
 
   const submitGallery = async (e) => {
@@ -584,44 +597,55 @@ export default function AdminApp() {
     setBusy(true);
     setStatus('');
     setGalUploadProgress(0);
-    const totalBytes = galFiles.reduce((s, f) => s + f.size, 0) || 1;
-    let doneBytes = 0;
     let ok = 0;
     try {
       for (let i = 0; i < galFiles.length; i += 1) {
         const galFile = galFiles[i];
-        const ext = galFile.name.split('.').pop() || 'jpg';
-        const path = `gallery/${Date.now()}_${i}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const sref = ref(storage, path);
+        setStatus(`Wasserzeichen wird vorbereitet (${i + 1}/${galFiles.length}) …`);
+        const uploadFile = await addGalleryWatermark(galFile, brandLogoUrl);
+        const ext = galleryUploadExtension(uploadFile.type, galFile.name);
+        const extOrig = galFile.name.split('.').pop() || 'jpg';
+        const baseId = `${Date.now()}_${i}_${Math.random().toString(36).slice(2)}`;
         const pieceRaw = galPiece.trim();
         const piece = pieceRaw || pieceFromFilename(galFile.name);
 
-        const task = uploadBytesResumable(sref, galFile, { contentType: galFile.type || 'image/jpeg' });
-        const src = await new Promise((resolve, reject) => {
-          task.on(
-            'state_changed',
-            (snap) => {
-              const current = doneBytes + snap.bytesTransferred;
-              setGalUploadProgress(Math.min(100, Math.round((current / totalBytes) * 100)));
-            },
-            reject,
-            async () => {
-              resolve(await getDownloadURL(task.snapshot.ref));
-            },
-          );
-        });
+        const uploadOne = (file, storagePath, contentType) =>
+          new Promise((resolve, reject) => {
+            const sref = ref(storage, storagePath);
+            const task = uploadBytesResumable(sref, file, {
+              contentType: contentType || file.type || 'image/jpeg',
+            });
+            task.on(
+              'state_changed',
+              (snap) => {
+                const fileProgress = snap.bytesTransferred / Math.max(1, file.size);
+                const progress = ((i + fileProgress) / galFiles.length) * 100;
+                setGalUploadProgress(Math.min(99, Math.round(progress)));
+              },
+              reject,
+              async () => {
+                resolve(await getDownloadURL(task.snapshot.ref));
+              },
+            );
+          });
+
+        const [originalSrc, src] = await Promise.all([
+          uploadOne(galFile, `gallery-originals/${baseId}.${extOrig}`, galFile.type),
+          uploadOne(uploadFile, `gallery/${baseId}.${ext}`, uploadFile.type),
+        ]);
+
         const created = await addDoc(collection(db, 'gallery'), {
           src,
+          originalSrc,
           style: galStyle,
           ...(piece ? { piece } : {}),
           createdAt: serverTimestamp(),
           flickr: { status: 'pending', startedAt: new Date().toISOString() },
         });
-        // Flickr-Upload im Hintergrund (nicht-blockierend), Status landet im Doc.
-        triggerFlickrUpload(created.id, { src, style: galStyle, piece });
+        // Flickr: Original ohne Wasserzeichen (Pixsy). Website nutzt src mit Wasserzeichen.
+        triggerFlickrUpload(created.id, { src, originalSrc, style: galStyle, piece });
         ok += 1;
-        doneBytes += galFile.size;
-        setGalUploadProgress(Math.round((doneBytes / totalBytes) * 100));
+        setGalUploadProgress(Math.round(((i + 1) / galFiles.length) * 100));
       }
       setStatus(`Galerie: ${ok} Bild(er) gespeichert.`);
       clearGalSelection();
@@ -1101,6 +1125,10 @@ export default function AdminApp() {
             Wähle ein oder mehrere fertige Tattoo-Fotos aus, ordne sie einem Stil zu und speichere sie.
             Ein Anzeigename ist optional und kann leer bleiben.
           </p>
+          <p className="admin-help">
+            Beim Speichern wird das Studio-Logo automatisch als Wasserzeichen eingebrannt (Anzeige auf der Website).
+            Das Original ohne Wasserzeichen geht parallel an Flickr für den Urheberschutz (Pixsy).
+          </p>
           <form className="admin-form" onSubmit={submitGallery}>
             <div className="field">
               <label>Bilddateien (Mehrfachauswahl)</label>
@@ -1154,7 +1182,7 @@ export default function AdminApp() {
           <div className="admin-card admin-card-list">
             <h3 className="admin-h3">Zuletzt gespeicherte Galerie-Bilder</h3>
             <p className="admin-help">
-              Originale gehen automatisch an Flickr (Pixsy-Sync für Urheberschutz).
+              Website zeigt die Version mit Wasserzeichen. Flickr erhält das Original (Pixsy-Sync).
               Bei Fehlern erscheint ein Button für manuellen Re-Upload.
             </p>
             <ul className="admin-doc-list">
