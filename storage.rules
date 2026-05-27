@@ -21,6 +21,8 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
+    // Originale für Flickr: gallery/orig_* (gleiche match-Regel wie oben)
+
     // ── Wanna-dos (Admin-App: Pfad wannados/...)
     match /wannados/{fileName} {
       allow read: if true;
