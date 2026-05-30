@@ -17,6 +17,7 @@ import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebas
 import { useCallback, useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { TATTOO_STYLES, WANNADO_TARGETS } from '../constants/styles';
 import LuckyWheel, { formatSegment, segmentColor } from '../components/LuckyWheel';
+import StencilTool from './StencilTool';
 import { getDb, getBucket, getFirebaseAuth, getFirebaseConfig } from './firebase';
 import brandLogoUrl from '../../IMG_0708.jpeg';
 import { addGalleryWatermark, galleryUploadExtension, preloadWatermarkLogo } from './watermark';
@@ -1117,6 +1118,13 @@ export default function AdminApp() {
         >
           Glücksrad
         </button>
+        <button
+          type="button"
+          className={`gal-chip ${tab === 'stencil' ? 'active' : ''}`}
+          onClick={() => setTab('stencil')}
+        >
+          Stencil-Tool
+        </button>
       </div>
 
       {tab === 'gallery' && (
@@ -1843,6 +1851,8 @@ export default function AdminApp() {
           </div>
         </section>
       )}
+
+      {tab === 'stencil' && <StencilTool auth={auth} />}
     </div>
   );
 }
