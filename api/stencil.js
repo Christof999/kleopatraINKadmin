@@ -103,6 +103,12 @@ async function createPrediction(model, input, token) {
 async function runReplicate(model, input, token) {
   const { r, body } = await createPrediction(model, input, token);
   let pred = body;
+  if (r.status === 401) {
+    throw new Error(
+      'Replicate lehnt den Token ab. Bitte REPLICATE_API_TOKEN in Vercel prüfen ' +
+        '(ohne Leerzeichen/Anführungszeichen, beginnt mit "r8_") und neu deployen.',
+    );
+  }
   if (r.status >= 400 || pred?.error) {
     throw new Error(pred?.detail || pred?.error || `Replicate HTTP ${r.status}`);
   }
@@ -142,8 +148,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const token = process.env.REPLICATE_API_TOKEN;
-  const model = process.env.REPLICATE_MODEL;
+  const token = process.env.REPLICATE_API_TOKEN?.trim();
+  const model = process.env.REPLICATE_MODEL?.trim();
 
   if (req.method === 'GET') {
     return res.status(200).json({ configured: Boolean(token && model) });
