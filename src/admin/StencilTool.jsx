@@ -126,10 +126,11 @@ export default function StencilTool({ auth }) {
     try {
       const r = await fetch(resultUrl);
       const blob = await r.blob();
+      const ext = (blob.type && blob.type.split('/')[1]) || 'png';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `stencil-${Date.now()}.png`;
+      a.download = `stencil-${Date.now()}.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -153,7 +154,7 @@ export default function StencilTool({ auth }) {
         {configured === false && (
           <p className="admin-error">
             Stencil-Tool ist noch nicht konfiguriert. Bitte <code>REPLICATE_API_TOKEN</code> und{' '}
-            <code>REPLICATE_LINEART_VERSION</code> in den Vercel-Umgebungsvariablen setzen.
+            <code>REPLICATE_MODEL</code> in den Vercel-Umgebungsvariablen setzen.
           </p>
         )}
 
