@@ -27,6 +27,7 @@
 const PREDICTIONS_API = 'https://api.replicate.com/v1/predictions';
 const POLL_INTERVAL_MS = 1500;
 const MAX_WAIT_MS = 55000;
+const MAX_IMAGE_CHARS = 12 * 1024 * 1024; // ~9 MB Bild als data-URL; schützt vor Riesen-Payloads
 
 const DEFAULT_PROMPT =
   'Convert this image into a clean black-and-white tattoo stencil. Trace only the ' +
@@ -34,40 +35,7 @@ const DEFAULT_PROMPT =
   'white background. Remove all colour and shading, no grey tones — just clean line art ' +
   'suitable as a tattoo stencil.';
 
-const ADMIN_EMAILS = new Set([
-  'info@soergel-design.de',
-  'info@kleopatra-ink.com',
-]);
-
-// ── Admin-Auth (identisch zu flickr-upload.js) ──────────────────────────────
-
-async function verifyAdminToken(idToken) {
-  const apiKey =
-    process.env.VITE_FIREBASE_API_KEY ||
-    process.env.FIREBASE_WEB_API_KEY ||
-    process.env.FIREBASE_API_KEY;
-  if (!apiKey || !idToken) return null;
-  try {
-    const r = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      },
-    );
-    if (!r.ok) return null;
-    const data = await r.json();
-    const user = data?.users?.[0];
-    if (!user) return null;
-    const email = String(user.email || '').trim().toLowerCase();
-    return ADMIN_EMAILS.has(email) ? email : null;
-  } catch {
-    return null;
-  }
-}
-
-// ── Replicate ───────────────────────────────────────────────────────────────
+import { verifyAdminRequest } from './_lib/admin-auth.js';
 
 function firstOutput(output) {
   if (Array.isArray(output)) return output[output.length - 1] || null;
@@ -159,8 +127,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const idToken = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  const adminEmail = await verifyAdminToken(idToken);
+  const adminEmail = await verifyAdminRequest(req);
   if (!adminEmail) {
     return res.status(401).json({ success: false, error: 'Nicht autorisiert' });
   }
@@ -175,6 +142,12 @@ export default async function handler(req, res) {
   const { image, removeBackground } = req.body || {};
   if (!image || typeof image !== 'string') {
     return res.status(400).json({ success: false, error: 'Bild fehlt' });
+  }
+  if (!/^(data:image\/|https:\/\/)/i.test(image)) {
+    return res.status(400).json({ success: false, error: 'Ungültiges Bildformat' });
+  }
+  if (image.length > MAX_IMAGE_CHARS) {
+    return res.status(413).json({ success: false, error: 'Bild ist zu groß' });
   }
 
   try {

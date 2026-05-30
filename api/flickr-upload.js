@@ -12,12 +12,9 @@
 //   3. Optional: FLICKR_STUDIO_NAME, FLICKR_ARTIST_NAME, FLICKR_USER_ID
 
 import crypto from 'crypto';
+import { verifyAdminRequest } from './_lib/admin-auth.js';
 
 const FLICKR_UPLOAD_URL = 'https://up.flickr.com/services/upload/';
-const ADMIN_EMAILS = new Set([
-  'info@soergel-design.de',
-  'info@kleopatra-ink.com',
-]);
 
 // ── OAuth 1.0a Signing ──────────────────────────────────────────────────────
 
@@ -121,8 +118,7 @@ export default async function handler(req, res) {
   }
 
   // Auth
-  const idToken = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  const adminEmail = await verifyAdminToken(idToken);
+  const adminEmail = await verifyAdminRequest(req);
   if (!adminEmail) {
     return res.status(401).json({ success: false, error: 'Nicht autorisiert' });
   }
