@@ -41,34 +41,6 @@ function generateNonce() {
   return crypto.randomBytes(16).toString('hex');
 }
 
-// ── Admin-Verifizierung via Firebase Identity Toolkit ───────────────────────
-
-async function verifyAdminToken(idToken) {
-  const apiKey =
-    process.env.VITE_FIREBASE_API_KEY ||
-    process.env.FIREBASE_WEB_API_KEY ||
-    process.env.FIREBASE_API_KEY;
-  if (!apiKey || !idToken) return null;
-  try {
-    const r = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      },
-    );
-    if (!r.ok) return null;
-    const data = await r.json();
-    const user = data?.users?.[0];
-    if (!user) return null;
-    const email = String(user.email || '').trim().toLowerCase();
-    return ADMIN_EMAILS.has(email) ? email : null;
-  } catch {
-    return null;
-  }
-}
-
 // ── Flickr XML-Response parsen ──────────────────────────────────────────────
 
 function parseFlickrResponse(xml) {

@@ -24,6 +24,8 @@
 //     REPLICATE_PROMPT    = …        eigener Prompt (überschreibt den Standard)
 //     REPLICATE_MODEL kann auch "owner/name:<version-hash>" sein, falls gewünscht.
 
+import { verifyAdminRequest } from './_lib/admin-auth.js';
+
 const PREDICTIONS_API = 'https://api.replicate.com/v1/predictions';
 const POLL_INTERVAL_MS = 1500;
 const MAX_WAIT_MS = 55000;
@@ -34,8 +36,6 @@ const DEFAULT_PROMPT =
   'outlines and the main line work of the motif as solid crisp black lines on a plain ' +
   'white background. Remove all colour and shading, no grey tones — just clean line art ' +
   'suitable as a tattoo stencil.';
-
-import { verifyAdminRequest } from './_lib/admin-auth.js';
 
 function firstOutput(output) {
   if (Array.isArray(output)) return output[output.length - 1] || null;
